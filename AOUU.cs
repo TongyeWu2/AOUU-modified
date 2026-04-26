@@ -70,6 +70,7 @@ public partial class AOUU : Form
     private bool _isConfiguringKey;
     private bool _isRecognitionRunning;
     private bool _isRegionCaptureRunning;
+    private bool _isApplyingConfigToUi;
     private DateTime _lastLeftClickSoundUtc = DateTime.MinValue;
     private DateTime _lastRightClickSoundUtc = DateTime.MinValue;
     private KeyConfigurationTarget _preparedKeyConfigurationTarget;
@@ -225,7 +226,7 @@ public partial class AOUU : Form
             SmallChange = 5,
             LargeChange = 10
         };
-        _audioVolumeBar.Scroll += AudioVolumeBar_Scroll;
+        _audioVolumeBar.ValueChanged += AudioVolumeBar_ValueChanged;
 
         _audioVolumeValueLabel = new Label
         {
@@ -360,7 +361,6 @@ public partial class AOUU : Form
         LoadAudio();
         RefreshRegionList();
         UpdateStatus();
-        SaveConfig();
 
         FormClosing += AOUU_FormClosing;
         FormClosed += AOUU_FormClosed;
@@ -519,6 +519,11 @@ public partial class AOUU : Form
 
     private void TimingBox_ValueChanged(object? sender, EventArgs e)
     {
+        if (_isApplyingConfigToUi)
+        {
+            return;
+        }
+
         _config.WatchWindowMs = (int)_watchWindowBox.Value;
         _config.PollIntervalMs = (int)_pollIntervalBox.Value;
 
@@ -528,6 +533,11 @@ public partial class AOUU : Form
 
     private void HealthConsecutiveFramesBox_ValueChanged(object? sender, EventArgs e)
     {
+        if (_isApplyingConfigToUi)
+        {
+            return;
+        }
+
         _config.HealthConsecutiveFramesRequired = (int)_healthConsecutiveFramesBox.Value;
         SyncHealthConsecutiveFramesToRegion();
         SaveConfig();
@@ -543,8 +553,13 @@ public partial class AOUU : Form
         UpdateStatus();
     }
 
-    private void AudioVolumeBar_Scroll(object? sender, EventArgs e)
+    private void AudioVolumeBar_ValueChanged(object? sender, EventArgs e)
     {
+        if (_isApplyingConfigToUi)
+        {
+            return;
+        }
+
         _config.AudioVolume = _audioVolumeBar.Value / 100f;
         UpdateVolumeDisplay();
         ApplyAudioVolume();
@@ -1218,17 +1233,26 @@ public partial class AOUU : Form
 
     private void ApplyConfigToUi()
     {
-        UpdateAudioDisplay();
-        _watchWindowBox.Value = Math.Clamp(_config.WatchWindowMs, (int)_watchWindowBox.Minimum, (int)_watchWindowBox.Maximum);
-        _pollIntervalBox.Value = Math.Clamp(_config.PollIntervalMs, (int)_pollIntervalBox.Minimum, (int)_pollIntervalBox.Maximum);
-        _healthConsecutiveFramesBox.Value = Math.Clamp(_config.HealthConsecutiveFramesRequired, (int)_healthConsecutiveFramesBox.Minimum, (int)_healthConsecutiveFramesBox.Maximum);
-        _healthThresholdBar.Value = Math.Clamp(_config.HealthGrowthPixelThreshold, _healthThresholdBar.Minimum, _healthThresholdBar.Maximum);
-        _audioVolumeBar.Value = Math.Clamp((int)Math.Round(_config.AudioVolume * 100f), _audioVolumeBar.Minimum, _audioVolumeBar.Maximum);
-        UpdateThresholdDisplay();
-        UpdateVolumeDisplay();
-        ApplyAudioVolume();
-        _triggerMonitorService.TriggerKey = _config.TriggerKey;
-        _regionCaptureMonitorService.TriggerKey = _config.RegionCaptureKey;
+        _isApplyingConfigToUi = true;
+
+        try
+        {
+            UpdateAudioDisplay();
+            _watchWindowBox.Value = Math.Clamp(_config.WatchWindowMs, (int)_watchWindowBox.Minimum, (int)_watchWindowBox.Maximum);
+            _pollIntervalBox.Value = Math.Clamp(_config.PollIntervalMs, (int)_pollIntervalBox.Minimum, (int)_pollIntervalBox.Maximum);
+            _healthConsecutiveFramesBox.Value = Math.Clamp(_config.HealthConsecutiveFramesRequired, (int)_healthConsecutiveFramesBox.Minimum, (int)_healthConsecutiveFramesBox.Maximum);
+            _healthThresholdBar.Value = Math.Clamp(_config.HealthGrowthPixelThreshold, _healthThresholdBar.Minimum, _healthThresholdBar.Maximum);
+            _audioVolumeBar.Value = Math.Clamp((int)Math.Round(_config.AudioVolume * 100f), _audioVolumeBar.Minimum, _audioVolumeBar.Maximum);
+            UpdateThresholdDisplay();
+            UpdateVolumeDisplay();
+            ApplyAudioVolume();
+            _triggerMonitorService.TriggerKey = _config.TriggerKey;
+            _regionCaptureMonitorService.TriggerKey = _config.RegionCaptureKey;
+        }
+        finally
+        {
+            _isApplyingConfigToUi = false;
+        }
     }
 
     private void RefreshRegionList()
