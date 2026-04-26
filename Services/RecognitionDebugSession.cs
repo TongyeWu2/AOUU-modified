@@ -1,8 +1,8 @@
-using System;
+﻿using System;
 using System.Drawing;
 using System.Globalization;
 
-namespace WinFormsApp1.Services;
+namespace AOUU.Services;
 
 public sealed class RecognitionDebugSession
 {

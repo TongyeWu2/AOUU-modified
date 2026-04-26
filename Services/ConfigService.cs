@@ -1,16 +1,18 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
-using WinFormsApp1.Models;
+using AOUU.Models;
 
-namespace WinFormsApp1.Services;
+namespace AOUU.Services;
 
 public sealed class ConfigService
 {
     private readonly string _configPath;
+    private readonly string _appDirectoryConfigPath;
     private readonly string _legacyConfigPath;
+    private readonly string _bundledDefaultTemplateDirectory;
     private readonly JsonSerializerOptions _serializerOptions = new()
     {
         WriteIndented = true
@@ -18,9 +20,15 @@ public sealed class ConfigService
 
     public ConfigService(string baseDirectory)
     {
-        _configPath = Path.Combine(baseDirectory, "config.json");
+        var userDataDirectory = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "AOUU");
+
+        _configPath = Path.Combine(userDataDirectory, "config.json");
+        _appDirectoryConfigPath = Path.Combine(baseDirectory, "config.json");
         _legacyConfigPath = Path.Combine(baseDirectory, "config.txt");
-        TemplateDirectory = Path.Combine(baseDirectory, "templates");
+        _bundledDefaultTemplateDirectory = Path.Combine(baseDirectory, "templates", "defaults");
+        TemplateDirectory = Path.Combine(userDataDirectory, "templates");
         DefaultTemplateDirectory = Path.Combine(TemplateDirectory, "defaults");
         DefaultAudioDirectory = Path.Combine(baseDirectory, "assets", "audio");
         DefaultAudioPath = Path.Combine(DefaultAudioDirectory, "default.wav");
@@ -65,19 +73,17 @@ public sealed class ConfigService
     {
         Directory.CreateDirectory(TemplateDirectory);
         Directory.CreateDirectory(DefaultTemplateDirectory);
-        Directory.CreateDirectory(DefaultAudioDirectory);
+        EnsureBundledDefaultTemplates();
 
-        if (File.Exists(_configPath))
+        if (TryLoadJson(_configPath, out var userConfig))
         {
-            try
-            {
-                var dto = JsonSerializer.Deserialize<AppConfigDto>(File.ReadAllText(_configPath), _serializerOptions);
-                return dto is null ? CreateDefault() : MapFromDto(dto);
-            }
-            catch
-            {
-                return CreateDefault();
-            }
+            return userConfig;
+        }
+
+        if (TryLoadJson(_appDirectoryConfigPath, out var appDirectoryConfig))
+        {
+            Save(appDirectoryConfig);
+            return appDirectoryConfig;
         }
 
         if (!File.Exists(_legacyConfigPath))
@@ -109,9 +115,10 @@ public sealed class ConfigService
 
     public void Save(AppConfig config)
     {
+        Directory.CreateDirectory(Path.GetDirectoryName(_configPath)!);
         Directory.CreateDirectory(TemplateDirectory);
         Directory.CreateDirectory(DefaultTemplateDirectory);
-        Directory.CreateDirectory(DefaultAudioDirectory);
+        EnsureBundledDefaultTemplates();
         var dto = MapToDto(config);
         File.WriteAllText(_configPath, JsonSerializer.Serialize(dto, _serializerOptions));
     }
@@ -122,6 +129,50 @@ public sealed class ConfigService
         {
             AudioPath = File.Exists(DefaultAudioPath) ? DefaultAudioPath : string.Empty
         };
+    }
+
+    private void EnsureBundledDefaultTemplates()
+    {
+        CopyBundledDefaultTemplate("skill_ready.png");
+        CopyBundledDefaultTemplate("skill_empty.png");
+        CopyBundledDefaultTemplate("health_anchor.png");
+    }
+
+    private void CopyBundledDefaultTemplate(string fileName)
+    {
+        var sourcePath = Path.Combine(_bundledDefaultTemplateDirectory, fileName);
+        var destinationPath = Path.Combine(DefaultTemplateDirectory, fileName);
+
+        if (!File.Exists(destinationPath) && File.Exists(sourcePath))
+        {
+            File.Copy(sourcePath, destinationPath);
+        }
+    }
+
+    private bool TryLoadJson(string path, out AppConfig config)
+    {
+        config = null!;
+
+        if (!File.Exists(path))
+        {
+            return false;
+        }
+
+        try
+        {
+            var dto = JsonSerializer.Deserialize<AppConfigDto>(File.ReadAllText(path), _serializerOptions);
+            if (dto is null)
+            {
+                return false;
+            }
+
+            config = MapFromDto(dto);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private AppConfig MapFromDto(AppConfigDto dto)

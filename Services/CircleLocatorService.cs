@@ -1,10 +1,10 @@
-using System;
+﻿using System;
 using System.Drawing;
 using System.Linq;
 using OpenCvSharp;
 using OpenCvSharp.Extensions;
 
-namespace WinFormsApp1.Services;
+namespace AOUU.Services;
 
 public sealed class CircleLocatorService
 {

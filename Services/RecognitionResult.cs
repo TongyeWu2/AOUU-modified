@@ -1,4 +1,4 @@
-namespace WinFormsApp1.Services;
+﻿namespace AOUU.Services;
 
 public sealed record RecognitionResult(
     bool Matched,

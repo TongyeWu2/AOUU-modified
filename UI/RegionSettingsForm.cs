@@ -1,9 +1,9 @@
-using System;
+﻿using System;
 using System.Drawing;
 using System.Windows.Forms;
-using WinFormsApp1.Models;
+using AOUU.Models;
 
-namespace WinFormsApp1.UI;
+namespace AOUU.UI;
 
 public sealed class RegionSettingsForm : Form
 {

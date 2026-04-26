@@ -1,7 +1,7 @@
-using System;
+﻿using System;
 using System.Drawing;
 
-namespace WinFormsApp1.Services;
+namespace AOUU.Services;
 
 public sealed class HealthBaselineService : IDisposable
 {

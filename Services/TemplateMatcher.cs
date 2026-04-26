@@ -1,12 +1,12 @@
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Drawing;
 using System.IO;
 using OpenCvSharp;
 using OpenCvSharp.Extensions;
-using WinFormsApp1.Models;
+using AOUU.Models;
 
-namespace WinFormsApp1.Services;
+namespace AOUU.Services;
 
 public sealed class TemplateMatcher : IDisposable
 {

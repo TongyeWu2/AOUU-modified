@@ -1,6 +1,6 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 
-namespace WinFormsApp1.Models;
+namespace AOUU.Models;
 
 public sealed class AppConfig
 {

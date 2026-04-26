@@ -1,13 +1,13 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using WinFormsApp1.Models;
+using AOUU.Models;
 
-namespace WinFormsApp1.Services;
+namespace AOUU.Services;
 
 public sealed class RecognitionSession
 {

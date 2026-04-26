@@ -1,9 +1,9 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
-namespace WinFormsApp1.Services;
+namespace AOUU.Services;
 
 public sealed class TriggerMonitorService : IDisposable
 {

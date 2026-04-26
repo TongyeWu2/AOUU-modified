@@ -1,7 +1,7 @@
-using System;
+﻿using System;
 using System.Runtime.InteropServices;
 
-namespace WinFormsApp1.Services;
+namespace AOUU.Services;
 
 public sealed class GlobalInputHookService : IDisposable
 {

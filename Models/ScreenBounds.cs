@@ -1,6 +1,6 @@
-using System.Drawing;
+﻿using System.Drawing;
 
-namespace WinFormsApp1.Models;
+namespace AOUU.Models;
 
 public sealed class ScreenBounds
 {

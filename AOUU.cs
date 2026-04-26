@@ -1,17 +1,17 @@
-using System;
+﻿using System;
 using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Windows.Forms;
 using NAudio.Wave;
-using WinFormsApp1.Models;
-using WinFormsApp1.Services;
-using WinFormsApp1.UI;
+using AOUU.Models;
+using AOUU.Services;
+using AOUU.UI;
 
-namespace WinFormsApp1;
+namespace AOUU;
 
-public partial class Form1 : Form
+public partial class AOUU : Form
 {
     private enum KeyConfigurationTarget
     {
@@ -64,7 +64,7 @@ public partial class Form1 : Form
     private bool _isRegionCaptureRunning;
     private KeyConfigurationTarget _preparedKeyConfigurationTarget;
 
-    public Form1()
+    public AOUU()
     {
         InitializeComponent();
 
@@ -331,8 +331,8 @@ public partial class Form1 : Form
         UpdateStatus();
         SaveConfig();
 
-        FormClosing += Form1_FormClosing;
-        FormClosed += Form1_FormClosed;
+        FormClosing += AOUU_FormClosing;
+        FormClosed += AOUU_FormClosed;
 
         _triggerMonitorService.Enabled = true;
         _regionCaptureMonitorService.Enabled = true;
@@ -1078,13 +1078,13 @@ public partial class Form1 : Form
         _statusLabel.Text = message;
     }
 
-    private void Form1_FormClosing(object? sender, FormClosingEventArgs e)
+    private void AOUU_FormClosing(object? sender, FormClosingEventArgs e)
     {
         _shutdownCts.Cancel();
         SaveConfig();
     }
 
-    private void Form1_FormClosed(object? sender, FormClosedEventArgs e)
+    private void AOUU_FormClosed(object? sender, FormClosedEventArgs e)
     {
         _triggerMonitorService.Dispose();
         _regionCaptureMonitorService.Dispose();

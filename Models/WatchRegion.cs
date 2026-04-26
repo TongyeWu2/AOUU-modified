@@ -1,4 +1,4 @@
-namespace WinFormsApp1.Models;
+﻿namespace AOUU.Models;
 
 public abstract class WatchRegion
 {
