@@ -179,6 +179,8 @@ public sealed class ConfigService
     {
         var config = CreateDefault();
         config.AudioPath = dto.AudioPath ?? config.AudioPath;
+        config.LeftClickAudioPath = dto.LeftClickAudioPath ?? string.Empty;
+        config.RightClickAudioPath = dto.RightClickAudioPath ?? string.Empty;
         config.AudioVolume = Math.Clamp(dto.AudioVolume, 0.0f, 1.0f);
         config.TriggerKey = TriggerMonitorService.IsSupportedHotkey(dto.TriggerKey) ? dto.TriggerKey : 0x77;
         config.TriggerKeyName = TriggerMonitorService.GetKeyName(config.TriggerKey);
@@ -204,7 +206,8 @@ public sealed class ConfigService
             config.AudioPath = DefaultAudioPath;
         }
 
-        if (string.IsNullOrWhiteSpace(config.AudioPath) || !File.Exists(config.AudioPath))
+        if (string.IsNullOrWhiteSpace(config.AudioPath) ||
+            (!File.Exists(config.AudioPath) && !Directory.Exists(config.AudioPath)))
         {
             config.AudioPath = File.Exists(DefaultAudioPath) ? DefaultAudioPath : string.Empty;
         }
@@ -291,6 +294,8 @@ public sealed class ConfigService
         return new AppConfigDto
         {
             AudioPath = config.AudioPath,
+            LeftClickAudioPath = config.LeftClickAudioPath,
+            RightClickAudioPath = config.RightClickAudioPath,
             AudioVolume = config.AudioVolume,
             TriggerKey = config.TriggerKey,
             TriggerKeyName = config.TriggerKeyName,
@@ -337,6 +342,10 @@ public sealed class ConfigService
     private sealed class AppConfigDto
     {
         public string? AudioPath { get; set; }
+
+        public string? LeftClickAudioPath { get; set; }
+
+        public string? RightClickAudioPath { get; set; }
 
         public float AudioVolume { get; set; } = 1.0f;
 

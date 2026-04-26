@@ -6,6 +6,10 @@ public sealed class AppConfig
 {
     public string AudioPath { get; set; } = string.Empty;
 
+    public string LeftClickAudioPath { get; set; } = string.Empty;
+
+    public string RightClickAudioPath { get; set; } = string.Empty;
+
     public float AudioVolume { get; set; } = 1.0f;
 
     public int TriggerKey { get; set; } = 0x77;

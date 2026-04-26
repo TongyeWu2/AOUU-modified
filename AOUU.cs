@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Linq;
@@ -28,6 +29,8 @@ public partial class AOUU : Form
 
     private readonly TextBox _audioPathBox;
     private readonly Button _browseButton;
+    private readonly Button _browseLeftClickAudioButton;
+    private readonly Button _browseRightClickAudioButton;
     private readonly Button _setTriggerKeyButton;
     private readonly Button _setRegionCaptureKeyButton;
     private readonly Button _setSkillRegionButton;
@@ -54,6 +57,11 @@ public partial class AOUU : Form
     private readonly HealthBaselineService _healthBaselineService;
     private readonly CancellationTokenSource _shutdownCts = new();
     private readonly object _audioLock = new();
+    private static readonly string[] SupportedAudioExtensions = [".mp3", ".wav"];
+
+    private readonly object _clickSoundLock = new();
+    private readonly Random _audioRandom = new();
+    private readonly List<(IWavePlayer OutputDevice, AudioFileReader AudioFile)> _clickSoundPlayers = [];
 
     private AppConfig _config;
     private IWavePlayer? _outputDevice;
@@ -62,6 +70,8 @@ public partial class AOUU : Form
     private bool _isConfiguringKey;
     private bool _isRecognitionRunning;
     private bool _isRegionCaptureRunning;
+    private DateTime _lastLeftClickSoundUtc = DateTime.MinValue;
+    private DateTime _lastRightClickSoundUtc = DateTime.MinValue;
     private KeyConfigurationTarget _preparedKeyConfigurationTarget;
 
     public AOUU()
@@ -77,6 +87,7 @@ public partial class AOUU : Form
 
         _configService = new ConfigService(AppDomain.CurrentDomain.BaseDirectory);
         _inputCaptureService = new InputCaptureService();
+        _inputCaptureService.InputPressed += InputCaptureService_InputPressed;
         _inputCaptureService.Start();
         _screenCaptureService = new ScreenCaptureService();
         _templateMatcher = new TemplateMatcher();
@@ -112,6 +123,24 @@ public partial class AOUU : Form
             Text = "配置音频"
         };
         _browseButton.Click += BrowseButton_Click;
+
+        _browseLeftClickAudioButton = new Button
+        {
+            Left = 736,
+            Top = 36,
+            Width = 70,
+            Text = "左键音效"
+        };
+        _browseLeftClickAudioButton.Click += BrowseLeftClickAudioButton_Click;
+
+        _browseRightClickAudioButton = new Button
+        {
+            Left = 814,
+            Top = 36,
+            Width = 70,
+            Text = "右键音效"
+        };
+        _browseRightClickAudioButton.Click += BrowseRightClickAudioButton_Click;
 
         _setTriggerKeyButton = new Button
         {
@@ -259,6 +288,8 @@ public partial class AOUU : Form
         });
         Controls.Add(_audioPathBox);
         Controls.Add(_browseButton);
+        Controls.Add(_browseLeftClickAudioButton);
+        Controls.Add(_browseRightClickAudioButton);
         Controls.Add(_setTriggerKeyButton);
         Controls.Add(_setRegionCaptureKeyButton);
         Controls.Add(new Label
@@ -340,19 +371,73 @@ public partial class AOUU : Form
 
     private void BrowseButton_Click(object? sender, EventArgs e)
     {
-        using var dialog = new OpenFileDialog();
-        dialog.Filter = "音频文件|*.mp3;*.wav";
-
-        if (dialog.ShowDialog(this) != DialogResult.OK)
+        if (TryBrowseAudioFile(out var path))
         {
-            return;
+            _config.AudioPath = path;
+            SaveConfig();
+            LoadAudio();
+            UpdateAudioDisplay();
+            UpdateStatus();
+        }
+    }
+
+    private void BrowseLeftClickAudioButton_Click(object? sender, EventArgs e)
+    {
+        if (TryBrowseAudioFile(out var path))
+        {
+            _config.LeftClickAudioPath = path;
+            SaveConfig();
+            UpdateStatus();
+        }
+    }
+
+    private void BrowseRightClickAudioButton_Click(object? sender, EventArgs e)
+    {
+        if (TryBrowseAudioFile(out var path))
+        {
+            _config.RightClickAudioPath = path;
+            SaveConfig();
+            UpdateStatus();
+        }
+    }
+
+    private bool TryBrowseAudioFile(out string path)
+    {
+        var choice = MessageBox.Show(
+            this,
+            "选择文件夹请点“是”，选择单个音频文件请点“否”。",
+            "选择音频来源",
+            MessageBoxButtons.YesNoCancel,
+            MessageBoxIcon.Question);
+
+        if (choice == DialogResult.Yes)
+        {
+            using var folderDialog = new FolderBrowserDialog
+            {
+                Description = "选择包含音频文件的文件夹",
+                UseDescriptionForTitle = true
+            };
+
+            if (folderDialog.ShowDialog(this) == DialogResult.OK)
+            {
+                path = folderDialog.SelectedPath;
+                return true;
+            }
+        }
+        else if (choice == DialogResult.No)
+        {
+            using var fileDialog = new OpenFileDialog();
+            fileDialog.Filter = "音频文件|*.mp3;*.wav";
+
+            if (fileDialog.ShowDialog(this) == DialogResult.OK)
+            {
+                path = fileDialog.FileName;
+                return true;
+            }
         }
 
-        _config.AudioPath = dialog.FileName;
-        SaveConfig();
-        LoadAudio();
-        UpdateAudioDisplay();
-        UpdateStatus();
+        path = string.Empty;
+        return false;
     }
 
     private void SetTriggerKeyButton_Click(object? sender, EventArgs e)
@@ -480,9 +565,9 @@ public partial class AOUU : Form
             return;
         }
 
-        if (!File.Exists(_config.AudioPath))
+        if (!HasPlayableAudio(_config.AudioPath))
         {
-            SetStatus("未加载音频，请先配置一个音频文件。");
+            SetStatus("未加载音频，请先配置音频文件或包含音频的文件夹。");
             return;
         }
 
@@ -532,6 +617,18 @@ public partial class AOUU : Form
         }
 
         CaptureBothRegionsSession(restoreWindowAfter: true);
+    }
+
+    private void InputCaptureService_InputPressed(int keyCode)
+    {
+        if (keyCode == 0x01)
+        {
+            TryPlayClickSound(_config.LeftClickAudioPath, isLeftButton: true);
+        }
+        else if (keyCode == 0x02)
+        {
+            TryPlayClickSound(_config.RightClickAudioPath, isLeftButton: false);
+        }
     }
 
     private void RemoveRegionButton_Click(object? sender, EventArgs e)
@@ -910,40 +1007,32 @@ public partial class AOUU : Form
     private void LoadAudio()
     {
         DisposeAudio();
-
-        if (!File.Exists(_config.AudioPath))
-        {
-            return;
-        }
-
-        try
-        {
-            _audioFile = new AudioFileReader(_config.AudioPath);
-            _audioFile.Volume = Math.Clamp(_config.AudioVolume, 0f, 1f);
-            _outputDevice = new WaveOutEvent();
-            _outputDevice.PlaybackStopped += OutputDevice_PlaybackStopped;
-            _outputDevice.Init(_audioFile);
-        }
-        catch
-        {
-            DisposeAudio();
-            SetStatus("音频加载失败，请检查文件格式或路径。");
-        }
     }
 
     private void PlayAudio()
     {
         lock (_audioLock)
         {
-            if (_audioFile is null || _outputDevice is null || _isPlaying)
+            if (_isPlaying || !TryResolveAudioPath(_config.AudioPath, out var audioPath))
             {
                 return;
             }
 
-            _audioFile.Position = 0;
-            _audioFile.Volume = Math.Clamp(_config.AudioVolume, 0f, 1f);
-            _outputDevice.Play();
-            _isPlaying = true;
+            try
+            {
+                _audioFile = new AudioFileReader(audioPath);
+                _audioFile.Volume = Math.Clamp(_config.AudioVolume, 0f, 1f);
+                _outputDevice = new WaveOutEvent();
+                _outputDevice.PlaybackStopped += OutputDevice_PlaybackStopped;
+                _outputDevice.Init(_audioFile);
+                _outputDevice.Play();
+                _isPlaying = true;
+            }
+            catch
+            {
+                DisposeMainAudioLocked();
+                SetStatus("音频播放失败，请检查文件格式或路径。");
+            }
         }
     }
 
@@ -953,10 +1042,7 @@ public partial class AOUU : Form
         {
             _isPlaying = false;
 
-            if (_audioFile is not null)
-            {
-                _audioFile.Position = 0;
-            }
+            DisposeMainAudioLocked();
         }
     }
 
@@ -964,19 +1050,170 @@ public partial class AOUU : Form
     {
         lock (_audioLock)
         {
-            _isPlaying = false;
+            DisposeMainAudioLocked();
+        }
 
-            if (_outputDevice is not null)
+        DisposeClickSounds();
+    }
+
+    private void DisposeMainAudioLocked()
+    {
+        _isPlaying = false;
+
+        if (_outputDevice is not null)
+        {
+            _outputDevice.PlaybackStopped -= OutputDevice_PlaybackStopped;
+            _outputDevice.Stop();
+            _outputDevice.Dispose();
+            _outputDevice = null;
+        }
+
+        _audioFile?.Dispose();
+        _audioFile = null;
+    }
+
+    private void TryPlayClickSound(string path, bool isLeftButton)
+    {
+        lock (_audioLock)
+        {
+            if (!_isPlaying)
             {
-                _outputDevice.PlaybackStopped -= OutputDevice_PlaybackStopped;
-                _outputDevice.Stop();
-                _outputDevice.Dispose();
-                _outputDevice = null;
+                return;
+            }
+        }
+
+        if (!TryResolveAudioPath(path, out var audioPath))
+        {
+            return;
+        }
+
+        lock (_clickSoundLock)
+        {
+            var now = DateTime.UtcNow;
+            var lastPlayedAt = isLeftButton ? _lastLeftClickSoundUtc : _lastRightClickSoundUtc;
+            if (now - lastPlayedAt < TimeSpan.FromSeconds(1))
+            {
+                return;
             }
 
-            _audioFile?.Dispose();
-            _audioFile = null;
+            if (isLeftButton)
+            {
+                _lastLeftClickSoundUtc = now;
+            }
+            else
+            {
+                _lastRightClickSoundUtc = now;
+            }
         }
+
+        PlayTransientSound(audioPath);
+    }
+
+    private void PlayTransientSound(string path)
+    {
+        AudioFileReader? audioFile = null;
+        IWavePlayer? outputDevice = null;
+
+        try
+        {
+            audioFile = new AudioFileReader(path)
+            {
+                Volume = Math.Clamp(_config.AudioVolume, 0f, 1f)
+            };
+            outputDevice = new WaveOutEvent();
+            outputDevice.PlaybackStopped += ClickSound_PlaybackStopped;
+            outputDevice.Init(audioFile);
+
+            lock (_clickSoundLock)
+            {
+                _clickSoundPlayers.Add((outputDevice, audioFile));
+            }
+
+            outputDevice.Play();
+        }
+        catch
+        {
+            outputDevice?.Dispose();
+            audioFile?.Dispose();
+        }
+    }
+
+    private void ClickSound_PlaybackStopped(object? sender, StoppedEventArgs e)
+    {
+        if (sender is not IWavePlayer outputDevice)
+        {
+            return;
+        }
+
+        AudioFileReader? audioFile = null;
+        lock (_clickSoundLock)
+        {
+            var index = _clickSoundPlayers.FindIndex(player => ReferenceEquals(player.OutputDevice, outputDevice));
+            if (index >= 0)
+            {
+                audioFile = _clickSoundPlayers[index].AudioFile;
+                _clickSoundPlayers.RemoveAt(index);
+            }
+        }
+
+        outputDevice.PlaybackStopped -= ClickSound_PlaybackStopped;
+        outputDevice.Dispose();
+        audioFile?.Dispose();
+    }
+
+    private void DisposeClickSounds()
+    {
+        List<(IWavePlayer OutputDevice, AudioFileReader AudioFile)> players;
+
+        lock (_clickSoundLock)
+        {
+            players = _clickSoundPlayers.ToList();
+            _clickSoundPlayers.Clear();
+        }
+
+        foreach (var (outputDevice, audioFile) in players)
+        {
+            outputDevice.PlaybackStopped -= ClickSound_PlaybackStopped;
+            outputDevice.Stop();
+            outputDevice.Dispose();
+            audioFile.Dispose();
+        }
+    }
+
+    private bool HasPlayableAudio(string path)
+    {
+        return TryResolveAudioPath(path, out _);
+    }
+
+    private bool TryResolveAudioPath(string path, out string audioPath)
+    {
+        if (File.Exists(path) && IsSupportedAudioFile(path))
+        {
+            audioPath = path;
+            return true;
+        }
+
+        if (Directory.Exists(path))
+        {
+            var files = Directory.EnumerateFiles(path)
+                .Where(IsSupportedAudioFile)
+                .ToList();
+
+            if (files.Count > 0)
+            {
+                audioPath = files[_audioRandom.Next(files.Count)];
+                return true;
+            }
+        }
+
+        audioPath = string.Empty;
+        return false;
+    }
+
+    private static bool IsSupportedAudioFile(string path)
+    {
+        var extension = Path.GetExtension(path);
+        return SupportedAudioExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase);
     }
 
     private void ApplyConfigToUi()
@@ -1031,7 +1268,7 @@ public partial class AOUU : Form
 
     private void UpdateStatus()
     {
-        var audioState = File.Exists(_config.AudioPath) ? "已加载音频" : "未选择音频";
+        var audioState = HasPlayableAudio(_config.AudioPath) ? "已加载音频" : "未选择音频";
         var regionCount = _config.Regions.Count;
         _statusLabel.Text =
             $"{audioState}。技能触发键：{_config.TriggerKeyName}。截图键：{_config.RegionCaptureKeyName}。检测区域数量：{regionCount}。";
@@ -1088,6 +1325,7 @@ public partial class AOUU : Form
     {
         _triggerMonitorService.Dispose();
         _regionCaptureMonitorService.Dispose();
+        _inputCaptureService.InputPressed -= InputCaptureService_InputPressed;
         _inputCaptureService.Dispose();
         _healthBaselineService.Dispose();
         _templateMatcher.Dispose();
