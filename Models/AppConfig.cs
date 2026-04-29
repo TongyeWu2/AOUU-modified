@@ -12,6 +12,14 @@ public sealed class AppConfig
 
     public float AudioVolume { get; set; } = 1.0f;
 
+    public string AudioOutputDeviceName { get; set; } = string.Empty;
+
+    public bool UseSoundpadOutput { get; set; }
+
+    public string SoundpadExecutablePath { get; set; } = string.Empty;
+
+    public int SoundpadSoundIndex { get; set; } = 1;
+
     public int TriggerKey { get; set; } = 0x77;
 
     public string TriggerKeyName { get; set; } = "F8";

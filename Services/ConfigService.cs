@@ -182,6 +182,10 @@ public sealed class ConfigService
         config.LeftClickAudioPath = dto.LeftClickAudioPath ?? string.Empty;
         config.RightClickAudioPath = dto.RightClickAudioPath ?? string.Empty;
         config.AudioVolume = Math.Clamp(dto.AudioVolume, 0.0f, 1.0f);
+        config.AudioOutputDeviceName = dto.AudioOutputDeviceName ?? string.Empty;
+        config.UseSoundpadOutput = dto.UseSoundpadOutput;
+        config.SoundpadExecutablePath = dto.SoundpadExecutablePath ?? string.Empty;
+        config.SoundpadSoundIndex = Math.Clamp(dto.SoundpadSoundIndex <= 0 ? 1 : dto.SoundpadSoundIndex, 1, 9999);
         config.TriggerKey = TriggerMonitorService.IsSupportedHotkey(dto.TriggerKey) ? dto.TriggerKey : 0x77;
         config.TriggerKeyName = TriggerMonitorService.GetKeyName(config.TriggerKey);
         config.RegionCaptureKey = TriggerMonitorService.IsSupportedHotkey(dto.RegionCaptureKey) ? dto.RegionCaptureKey : 0x79;
@@ -297,6 +301,10 @@ public sealed class ConfigService
             LeftClickAudioPath = config.LeftClickAudioPath,
             RightClickAudioPath = config.RightClickAudioPath,
             AudioVolume = config.AudioVolume,
+            AudioOutputDeviceName = config.AudioOutputDeviceName,
+            UseSoundpadOutput = config.UseSoundpadOutput,
+            SoundpadExecutablePath = config.SoundpadExecutablePath,
+            SoundpadSoundIndex = config.SoundpadSoundIndex,
             TriggerKey = config.TriggerKey,
             TriggerKeyName = config.TriggerKeyName,
             RegionCaptureKey = config.RegionCaptureKey,
@@ -348,6 +356,14 @@ public sealed class ConfigService
         public string? RightClickAudioPath { get; set; }
 
         public float AudioVolume { get; set; } = 1.0f;
+
+        public string? AudioOutputDeviceName { get; set; }
+
+        public bool UseSoundpadOutput { get; set; }
+
+        public string? SoundpadExecutablePath { get; set; }
+
+        public int SoundpadSoundIndex { get; set; } = 1;
 
         public int TriggerKey { get; set; }
 

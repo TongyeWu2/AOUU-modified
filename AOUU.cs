@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Linq;
@@ -45,6 +46,12 @@ public partial class AOUU : Form
     private readonly Label _healthThresholdValueLabel;
     private readonly TrackBar _audioVolumeBar;
     private readonly Label _audioVolumeValueLabel;
+    private readonly ComboBox _audioOutputDeviceBox;
+    private readonly Button _refreshAudioDevicesButton;
+    private readonly CheckBox _useSoundpadOutputBox;
+    private readonly TextBox _soundpadPathBox;
+    private readonly Button _browseSoundpadButton;
+    private readonly NumericUpDown _soundpadSoundIndexBox;
     private readonly TriggerMonitorService _triggerMonitorService;
     private readonly TriggerMonitorService _regionCaptureMonitorService;
     private readonly InputCaptureService _inputCaptureService;
@@ -81,7 +88,7 @@ public partial class AOUU : Form
 
         Text = "┗|｀O′|┛ 嗷~~";
         Width = 920;
-        Height = 690;
+        Height = 780;
         StartPosition = FormStartPosition.CenterScreen;
         MaximizeBox = false;
         Text = "┗|｀O′|┛ 嗷~~";
@@ -236,6 +243,66 @@ public partial class AOUU : Form
             Height = 28
         };
 
+        _audioOutputDeviceBox = new ComboBox
+        {
+            Left = 470,
+            Top = 270,
+            Width = 300,
+            DropDownStyle = ComboBoxStyle.DropDownList
+        };
+        _audioOutputDeviceBox.SelectedIndexChanged += AudioOutputDeviceBox_SelectedIndexChanged;
+
+        _refreshAudioDevicesButton = new Button
+        {
+            Left = 776,
+            Top = 268,
+            Width = 108,
+            Text = "刷新设备"
+        };
+        _refreshAudioDevicesButton.Click += (_, _) =>
+        {
+            RefreshAudioOutputDevices();
+            UpdateStatus();
+        };
+
+        _useSoundpadOutputBox = new CheckBox
+        {
+            Left = 24,
+            Top = 310,
+            Width = 180,
+            Text = "使用 Soundpad"
+        };
+        _useSoundpadOutputBox.CheckedChanged += SoundpadSettings_Changed;
+
+        _soundpadPathBox = new TextBox
+        {
+            Left = 220,
+            Top = 308,
+            Width = 360,
+            ReadOnly = true,
+            TabStop = false
+        };
+
+        _browseSoundpadButton = new Button
+        {
+            Left = 596,
+            Top = 306,
+            Width = 120,
+            Text = "选择 Soundpad"
+        };
+        _browseSoundpadButton.Click += BrowseSoundpadButton_Click;
+
+        _soundpadSoundIndexBox = new NumericUpDown
+        {
+            Left = 810,
+            Top = 308,
+            Width = 74,
+            Minimum = 1,
+            Maximum = 9999,
+            Increment = 1
+        };
+        _soundpadSoundIndexBox.ValueChanged += SoundpadSettings_Changed;
+
         _setSkillRegionButton = new Button
         {
             Left = 24,
@@ -266,16 +333,16 @@ public partial class AOUU : Form
         _regionsListBox = new ListBox
         {
             Left = 24,
-            Top = 310,
+            Top = 390,
             Width = 860,
-            Height = 230,
+            Height = 200,
             HorizontalScrollbar = true
         };
 
         _statusLabel = new Label
         {
             Left = 24,
-            Top = 580,
+            Top = 670,
             Width = 860,
             Height = 60
         };
@@ -340,8 +407,28 @@ public partial class AOUU : Form
         Controls.Add(_audioVolumeValueLabel);
         Controls.Add(new Label
         {
+            Left = 470,
+            Top = 250,
+            Width = 180,
+            Text = "音频输出设备"
+        });
+        Controls.Add(_audioOutputDeviceBox);
+        Controls.Add(_refreshAudioDevicesButton);
+        Controls.Add(_useSoundpadOutputBox);
+        Controls.Add(_soundpadPathBox);
+        Controls.Add(_browseSoundpadButton);
+        Controls.Add(new Label
+        {
+            Left = 730,
+            Top = 312,
+            Width = 74,
+            Text = "声音序号"
+        });
+        Controls.Add(_soundpadSoundIndexBox);
+        Controls.Add(new Label
+        {
             Left = 24,
-            Top = 288,
+            Top = 368,
             Width = 260,
             Text = "当前检测区域"
         });
@@ -349,7 +436,7 @@ public partial class AOUU : Form
         Controls.Add(new Label
         {
             Left = 24,
-            Top = 550,
+            Top = 640,
             Width = 860,
             Text = "点击配置键位后会弹出识别框，只有确认后的结果才会保存，支持键盘、鼠标侧键和手柄按钮，鼠标左键不会被接受。"
         });
@@ -357,6 +444,7 @@ public partial class AOUU : Form
 
         _config = _configService.Load();
 
+        RefreshAudioOutputDevices();
         ApplyConfigToUi();
         LoadAudio();
         RefreshRegionList();
@@ -564,6 +652,57 @@ public partial class AOUU : Form
         UpdateVolumeDisplay();
         ApplyAudioVolume();
         SaveConfig();
+        UpdateStatus();
+    }
+
+    private void AudioOutputDeviceBox_SelectedIndexChanged(object? sender, EventArgs e)
+    {
+        if (_isApplyingConfigToUi || _audioOutputDeviceBox.SelectedItem is not AudioOutputDeviceItem selectedDevice)
+        {
+            return;
+        }
+
+        _config.AudioOutputDeviceName = selectedDevice.ProductName;
+        SaveConfig();
+        UpdateStatus();
+    }
+
+    private void SoundpadSettings_Changed(object? sender, EventArgs e)
+    {
+        if (_isApplyingConfigToUi)
+        {
+            return;
+        }
+
+        _config.UseSoundpadOutput = _useSoundpadOutputBox.Checked;
+        _config.SoundpadSoundIndex = (int)_soundpadSoundIndexBox.Value;
+        SaveConfig();
+        UpdateSoundpadDisplay();
+        UpdateStatus();
+    }
+
+    private void BrowseSoundpadButton_Click(object? sender, EventArgs e)
+    {
+        using var fileDialog = new OpenFileDialog
+        {
+            Filter = "Soundpad|Soundpad.exe|可执行文件|*.exe",
+            FileName = "Soundpad.exe"
+        };
+
+        var initialPath = ResolveSoundpadExecutablePath(_config.SoundpadExecutablePath);
+        if (!string.IsNullOrWhiteSpace(initialPath))
+        {
+            fileDialog.InitialDirectory = Path.GetDirectoryName(initialPath);
+        }
+
+        if (fileDialog.ShowDialog(this) != DialogResult.OK)
+        {
+            return;
+        }
+
+        _config.SoundpadExecutablePath = fileDialog.FileName;
+        SaveConfig();
+        UpdateSoundpadDisplay();
         UpdateStatus();
     }
 
@@ -1026,6 +1165,12 @@ public partial class AOUU : Form
 
     private void PlayAudio()
     {
+        if (_config.UseSoundpadOutput)
+        {
+            TryPlaySoundpadSound();
+            return;
+        }
+
         lock (_audioLock)
         {
             if (_isPlaying || !TryResolveAudioPath(_config.AudioPath, out var audioPath))
@@ -1037,7 +1182,7 @@ public partial class AOUU : Form
             {
                 _audioFile = new AudioFileReader(audioPath);
                 _audioFile.Volume = Math.Clamp(_config.AudioVolume, 0f, 1f);
-                _outputDevice = new WaveOutEvent();
+                _outputDevice = CreateOutputDevice();
                 _outputDevice.PlaybackStopped += OutputDevice_PlaybackStopped;
                 _outputDevice.Init(_audioFile);
                 _outputDevice.Play();
@@ -1135,7 +1280,7 @@ public partial class AOUU : Form
             {
                 Volume = Math.Clamp(_config.AudioVolume, 0f, 1f)
             };
-            outputDevice = new WaveOutEvent();
+            outputDevice = CreateOutputDevice();
             outputDevice.PlaybackStopped += ClickSound_PlaybackStopped;
             outputDevice.Init(audioFile);
 
@@ -1200,6 +1345,136 @@ public partial class AOUU : Form
         return TryResolveAudioPath(path, out _);
     }
 
+    private void TryPlaySoundpadSound()
+    {
+        var soundpadPath = ResolveSoundpadExecutablePath(_config.SoundpadExecutablePath);
+        if (string.IsNullOrWhiteSpace(soundpadPath))
+        {
+            SetStatus("未找到 Soundpad.exe，请先选择 Soundpad 程序路径。");
+            return;
+        }
+
+        try
+        {
+            var command = $"DoPlaySound({_config.SoundpadSoundIndex},true,true)";
+            using var process = Process.Start(new ProcessStartInfo
+            {
+                FileName = soundpadPath,
+                Arguments = $"-rc {command}",
+                UseShellExecute = false,
+                CreateNoWindow = true
+            });
+
+            SetStatus($"已发送 Soundpad 播放命令：第 {_config.SoundpadSoundIndex} 个声音。");
+        }
+        catch (Exception ex)
+        {
+            SetStatus($"Soundpad 播放失败：{ex.Message}");
+        }
+    }
+
+    private static string ResolveSoundpadExecutablePath(string configuredPath)
+    {
+        if (!string.IsNullOrWhiteSpace(configuredPath) && File.Exists(configuredPath))
+        {
+            return configuredPath;
+        }
+
+        var candidates = new[]
+        {
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Soundpad", "Soundpad.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Steam", "steamapps", "common", "Soundpad", "Soundpad.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Steam", "steamapps", "common", "Soundpad", "Soundpad.exe")
+        };
+
+        return candidates.FirstOrDefault(File.Exists) ?? string.Empty;
+    }
+
+    private WaveOutEvent CreateOutputDevice()
+    {
+        return new WaveOutEvent
+        {
+            DeviceNumber = ResolveAudioOutputDeviceNumber(_config.AudioOutputDeviceName)
+        };
+    }
+
+    private static int ResolveAudioOutputDeviceNumber(string productName)
+    {
+        if (string.IsNullOrWhiteSpace(productName))
+        {
+            return -1;
+        }
+
+        try
+        {
+            for (var deviceNumber = 0; deviceNumber < WaveOut.DeviceCount; deviceNumber++)
+            {
+                var capabilities = WaveOut.GetCapabilities(deviceNumber);
+                if (string.Equals(capabilities.ProductName, productName, StringComparison.OrdinalIgnoreCase))
+                {
+                    return deviceNumber;
+                }
+            }
+        }
+        catch
+        {
+            return -1;
+        }
+
+        return -1;
+    }
+
+    private void RefreshAudioOutputDevices()
+    {
+        var wasApplyingConfigToUi = _isApplyingConfigToUi;
+        _isApplyingConfigToUi = true;
+
+        try
+        {
+            _audioOutputDeviceBox.Items.Clear();
+            _audioOutputDeviceBox.Items.Add(new AudioOutputDeviceItem(-1, string.Empty, "系统默认输出设备"));
+
+            try
+            {
+                for (var deviceNumber = 0; deviceNumber < WaveOut.DeviceCount; deviceNumber++)
+                {
+                    var capabilities = WaveOut.GetCapabilities(deviceNumber);
+                    _audioOutputDeviceBox.Items.Add(new AudioOutputDeviceItem(
+                        deviceNumber,
+                        capabilities.ProductName,
+                        $"{deviceNumber}: {capabilities.ProductName}"));
+                }
+            }
+            catch
+            {
+                SetStatus("读取音频输出设备失败，已保留系统默认输出设备。");
+            }
+
+            SelectConfiguredAudioOutputDevice();
+        }
+        finally
+        {
+            _isApplyingConfigToUi = wasApplyingConfigToUi;
+        }
+    }
+
+    private void SelectConfiguredAudioOutputDevice()
+    {
+        var selectedIndex = 0;
+
+        for (var index = 0; index < _audioOutputDeviceBox.Items.Count; index++)
+        {
+            if (_audioOutputDeviceBox.Items[index] is AudioOutputDeviceItem item &&
+                string.Equals(item.ProductName, _config.AudioOutputDeviceName, StringComparison.OrdinalIgnoreCase))
+            {
+                selectedIndex = index;
+                break;
+            }
+        }
+
+        _audioOutputDeviceBox.SelectedIndex = selectedIndex;
+    }
+
     private bool TryResolveAudioPath(string path, out string audioPath)
     {
         if (File.Exists(path) && IsSupportedAudioFile(path))
@@ -1243,6 +1518,10 @@ public partial class AOUU : Form
             _healthConsecutiveFramesBox.Value = Math.Clamp(_config.HealthConsecutiveFramesRequired, (int)_healthConsecutiveFramesBox.Minimum, (int)_healthConsecutiveFramesBox.Maximum);
             _healthThresholdBar.Value = Math.Clamp(_config.HealthGrowthPixelThreshold, _healthThresholdBar.Minimum, _healthThresholdBar.Maximum);
             _audioVolumeBar.Value = Math.Clamp((int)Math.Round(_config.AudioVolume * 100f), _audioVolumeBar.Minimum, _audioVolumeBar.Maximum);
+            SelectConfiguredAudioOutputDevice();
+            _useSoundpadOutputBox.Checked = _config.UseSoundpadOutput;
+            _soundpadSoundIndexBox.Value = Math.Clamp(_config.SoundpadSoundIndex, (int)_soundpadSoundIndexBox.Minimum, (int)_soundpadSoundIndexBox.Maximum);
+            UpdateSoundpadDisplay();
             UpdateThresholdDisplay();
             UpdateVolumeDisplay();
             ApplyAudioVolume();
@@ -1276,6 +1555,12 @@ public partial class AOUU : Form
         SyncHealthConsecutiveFramesToRegion();
         _config.HealthGrowthPixelThreshold = _healthThresholdBar.Value;
         _config.AudioVolume = _audioVolumeBar.Value / 100f;
+        if (_audioOutputDeviceBox.SelectedItem is AudioOutputDeviceItem selectedDevice)
+        {
+            _config.AudioOutputDeviceName = selectedDevice.ProductName;
+        }
+        _config.UseSoundpadOutput = _useSoundpadOutputBox.Checked;
+        _config.SoundpadSoundIndex = (int)_soundpadSoundIndexBox.Value;
         _configService.Save(_config);
     }
 
@@ -1290,12 +1575,29 @@ public partial class AOUU : Form
         _audioPathBox.Text = Path.GetFileName(_config.AudioPath);
     }
 
+    private void UpdateSoundpadDisplay()
+    {
+        var soundpadPath = ResolveSoundpadExecutablePath(_config.SoundpadExecutablePath);
+        _soundpadPathBox.Text = string.IsNullOrWhiteSpace(soundpadPath)
+            ? "未找到 Soundpad.exe"
+            : soundpadPath;
+    }
+
     private void UpdateStatus()
     {
-        var audioState = HasPlayableAudio(_config.AudioPath) ? "已加载音频" : "未选择音频";
+        var audioState = _config.UseSoundpadOutput
+            ? "Soundpad 模式"
+            : HasPlayableAudio(_config.AudioPath) ? "已加载音频" : "未选择音频";
+        var outputDevice = string.IsNullOrWhiteSpace(_config.AudioOutputDeviceName)
+            ? "系统默认输出设备"
+            : _config.AudioOutputDeviceName;
+        if (_config.UseSoundpadOutput)
+        {
+            outputDevice = $"Soundpad 第 {_config.SoundpadSoundIndex} 个声音";
+        }
         var regionCount = _config.Regions.Count;
         _statusLabel.Text =
-            $"{audioState}。技能触发键：{_config.TriggerKeyName}。截图键：{_config.RegionCaptureKeyName}。检测区域数量：{regionCount}。";
+            $"{audioState}。输出：{outputDevice}。技能触发键：{_config.TriggerKeyName}。截图键：{_config.RegionCaptureKeyName}。检测区域数量：{regionCount}。";
     }
 
     private void UpdateThresholdDisplay()
@@ -1362,4 +1664,12 @@ public partial class AOUU : Form
         SkillReadyWatchRegion SkillRegion,
         MarkerPoint HealthMarker,
         MarkerPoint SkillMarker);
+
+    private sealed record AudioOutputDeviceItem(int DeviceNumber, string ProductName, string DisplayName)
+    {
+        public override string ToString()
+        {
+            return DisplayName;
+        }
+    }
 }
