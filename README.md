@@ -10,6 +10,8 @@ https://github.com/Sulfoxide319/AOUU
 
 Changes in this version include audio output device selection and updated documentation.
 
+
+
 ## 功能
 
 - 监听自定义触发键，检测技能区域和血条区域后播放主音频。
@@ -20,8 +22,8 @@ Changes in this version include audio output device selection and updated docume
 - 左键音效和右键音效各自有 1 秒冷却，避免连续触发太密集。
 - 可以选择音频输出设备，配合虚拟声卡把 AOUU 播放的声音送进 Discord 等语音软件。
 - 可以启用 Soundpad 模式，让 AOUU 触发 Soundpad 播放指定序号的声音到扬声器和麦克风。
-- 可以识别屏幕文字触发音频，默认提供 `YOU DIED` 文字触发。
-- 可以启用独立的死亡自动触发：当 `YOU DIED` 模板匹配时播放死亡音乐。
+- 可以识别屏幕文字触发音频，默认提供 `YOU DIED` 文字触发。（没做好
+- 可以启用独立的死亡自动触发：当 `YOU DIED` 模板匹配时播放死亡音乐。（没做好
 - 音量、触发键、截图键、检测区域、音频路径都会保存到本机配置，下次打开自动载入。
 
 ## 使用方法
@@ -34,7 +36,8 @@ Changes in this version include audio output device selection and updated docume
 6. 正常进入游戏后，触发技能检测成功时会播放主音频。
 7. 主音频仍在播放期间，按鼠标左键或右键会播放对应额外音效。
 
-## 屏幕文字触发
+## 死亡音乐
+### 文字识别
 
 AOUU 支持通过 OCR 识别屏幕上的文字，并在检测到指定文字时播放对应音乐。默认配置包含一个示例触发器：
 
@@ -90,7 +93,7 @@ bin\Debug\net8.0-windows\tessdata\eng.traineddata
 4. 打开一张包含大字 `YOU DIED` 的图片，或在游戏中进入出现该文字的画面。
 5. 等待约 1-2 秒，如果 OCR 识别成功，AOUU 会播放配置的死亡音乐。
 
-## 死亡自动触发
+### 图像识别
 
 死亡自动触发是独立于技能触发键的检测流程。启用后，AOUU 会按固定间隔自动扫描用户框选的 `YOU DIED` 区域：
 
