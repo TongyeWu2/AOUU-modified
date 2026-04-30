@@ -125,9 +125,21 @@ public sealed class ConfigService
 
     private AppConfig CreateDefault()
     {
+        var defaultAudioPath = File.Exists(DefaultAudioPath) ? DefaultAudioPath : string.Empty;
         return new AppConfig
         {
-            AudioPath = File.Exists(DefaultAudioPath) ? DefaultAudioPath : string.Empty
+            AudioPath = defaultAudioPath,
+            TextTriggers =
+            [
+                new TextTriggerConfig
+                {
+                    Enabled = true,
+                    Text = "YOU DIED",
+                    MusicPath = defaultAudioPath,
+                    CooldownSeconds = 5
+                }
+            ],
+            DeathTrigger = new DeathTriggerConfig()
         };
     }
 
@@ -214,6 +226,36 @@ public sealed class ConfigService
             (!File.Exists(config.AudioPath) && !Directory.Exists(config.AudioPath)))
         {
             config.AudioPath = File.Exists(DefaultAudioPath) ? DefaultAudioPath : string.Empty;
+        }
+
+        if (dto.TextTriggers is not null)
+        {
+            config.TextTriggers.Clear();
+
+            foreach (var textTriggerDto in dto.TextTriggers)
+            {
+                var triggerText = string.IsNullOrWhiteSpace(textTriggerDto.Text)
+                    ? "YOU DIED"
+                    : textTriggerDto.Text.Trim();
+
+                config.TextTriggers.Add(new TextTriggerConfig
+                {
+                    Enabled = textTriggerDto.Enabled,
+                    Text = triggerText,
+                    MusicPath = textTriggerDto.MusicPath ?? string.Empty,
+                    CooldownSeconds = Math.Clamp(textTriggerDto.CooldownSeconds <= 0 ? 5 : textTriggerDto.CooldownSeconds, 1, 3600)
+                });
+            }
+        }
+
+        if (dto.DeathTrigger is not null)
+        {
+            config.DeathTrigger = MapDeathTriggerFromDto(dto.DeathTrigger);
+        }
+
+        if (dto.RegionCaptureHotkeys is not null)
+        {
+            config.RegionCaptureHotkeys = MapRegionCaptureHotkeysFromDto(dto.RegionCaptureHotkeys);
         }
 
         foreach (var regionDto in dto.Regions ?? [])
@@ -314,6 +356,15 @@ public sealed class ConfigService
             PollIntervalMs = config.PollIntervalMs,
             HealthGrowthPixelThreshold = config.HealthGrowthPixelThreshold,
             HealthConsecutiveFramesRequired = config.HealthConsecutiveFramesRequired,
+            TextTriggers = config.TextTriggers.Select(trigger => new TextTriggerDto
+            {
+                Enabled = trigger.Enabled,
+                Text = trigger.Text,
+                MusicPath = trigger.MusicPath,
+                CooldownSeconds = trigger.CooldownSeconds
+            }).ToList(),
+            DeathTrigger = MapDeathTriggerToDto(config.DeathTrigger),
+            RegionCaptureHotkeys = MapRegionCaptureHotkeysToDto(config.RegionCaptureHotkeys),
             Regions = config.Regions.Select(region =>
             {
                 if (region is SkillReadyWatchRegion skillRegion)
@@ -345,6 +396,68 @@ public sealed class ConfigService
                 };
             }).ToList()
         };
+    }
+
+    private static RegionCaptureHotkeysConfig MapRegionCaptureHotkeysFromDto(RegionCaptureHotkeysDto dto)
+    {
+        var hotkeys = new RegionCaptureHotkeysConfig();
+        hotkeys.SkillRegionKey = TriggerMonitorService.IsSupportedHotkey(dto.SkillRegionKey) ? dto.SkillRegionKey : 0x75;
+        hotkeys.SkillRegionKeyName = TriggerMonitorService.GetKeyName(hotkeys.SkillRegionKey);
+        hotkeys.HealthRegionKey = TriggerMonitorService.IsSupportedHotkey(dto.HealthRegionKey) ? dto.HealthRegionKey : 0x76;
+        hotkeys.HealthRegionKeyName = TriggerMonitorService.GetKeyName(hotkeys.HealthRegionKey);
+        hotkeys.DeathTextRegionKey = TriggerMonitorService.IsSupportedHotkey(dto.DeathTextRegionKey) ? dto.DeathTextRegionKey : 0x78;
+        hotkeys.DeathTextRegionKeyName = TriggerMonitorService.GetKeyName(hotkeys.DeathTextRegionKey);
+        return hotkeys;
+    }
+
+    private static RegionCaptureHotkeysDto MapRegionCaptureHotkeysToDto(RegionCaptureHotkeysConfig config)
+    {
+        return new RegionCaptureHotkeysDto
+        {
+            SkillRegionKey = config.SkillRegionKey,
+            SkillRegionKeyName = config.SkillRegionKeyName,
+            HealthRegionKey = config.HealthRegionKey,
+            HealthRegionKeyName = config.HealthRegionKeyName,
+            DeathTextRegionKey = config.DeathTextRegionKey,
+            DeathTextRegionKeyName = config.DeathTextRegionKeyName
+        };
+    }
+
+    private static DeathTriggerConfig MapDeathTriggerFromDto(DeathTriggerDto dto)
+    {
+        return new DeathTriggerConfig
+        {
+            Enabled = dto.Enabled,
+            HealthRegion = IsValidBounds(dto.HealthRegion) ? dto.HealthRegion : null,
+            DeathTextRegion = IsValidBounds(dto.DeathTextRegion) ? dto.DeathTextRegion : null,
+            DeathTemplateImagePath = dto.DeathTemplateImagePath ?? string.Empty,
+            DeathMusicPath = dto.DeathMusicPath ?? string.Empty,
+            TemplateSimilarityThreshold = Math.Clamp(dto.TemplateSimilarityThreshold <= 0 ? 0.75 : dto.TemplateSimilarityThreshold, 0.1, 1.0),
+            HealthZeroPixelThreshold = Math.Clamp(dto.HealthZeroPixelThreshold < 0 ? 3 : dto.HealthZeroPixelThreshold, 0, 200),
+            ScanIntervalMs = Math.Clamp(dto.ScanIntervalMs <= 0 ? 500 : dto.ScanIntervalMs, 100, 10000),
+            CooldownSeconds = Math.Clamp(dto.CooldownSeconds <= 0 ? 8 : dto.CooldownSeconds, 1, 3600)
+        };
+    }
+
+    private static DeathTriggerDto MapDeathTriggerToDto(DeathTriggerConfig config)
+    {
+        return new DeathTriggerDto
+        {
+            Enabled = config.Enabled,
+            HealthRegion = config.HealthRegion,
+            DeathTextRegion = config.DeathTextRegion,
+            DeathTemplateImagePath = config.DeathTemplateImagePath,
+            DeathMusicPath = config.DeathMusicPath,
+            TemplateSimilarityThreshold = config.TemplateSimilarityThreshold,
+            HealthZeroPixelThreshold = config.HealthZeroPixelThreshold,
+            ScanIntervalMs = config.ScanIntervalMs,
+            CooldownSeconds = config.CooldownSeconds
+        };
+    }
+
+    private static bool IsValidBounds(ScreenBounds? bounds)
+    {
+        return bounds is not null && bounds.Width > 0 && bounds.Height > 0;
     }
 
     private sealed class AppConfigDto
@@ -383,7 +496,60 @@ public sealed class ConfigService
 
         public int HealthConsecutiveFramesRequired { get; set; } = 2;
 
+        public List<TextTriggerDto>? TextTriggers { get; set; }
+
+        public DeathTriggerDto? DeathTrigger { get; set; }
+
+        public RegionCaptureHotkeysDto? RegionCaptureHotkeys { get; set; }
+
         public List<WatchRegionDto>? Regions { get; set; }
+    }
+
+    private sealed class RegionCaptureHotkeysDto
+    {
+        public int SkillRegionKey { get; set; } = 0x75;
+
+        public string? SkillRegionKeyName { get; set; }
+
+        public int HealthRegionKey { get; set; } = 0x76;
+
+        public string? HealthRegionKeyName { get; set; }
+
+        public int DeathTextRegionKey { get; set; } = 0x78;
+
+        public string? DeathTextRegionKeyName { get; set; }
+    }
+
+    private sealed class DeathTriggerDto
+    {
+        public bool Enabled { get; set; }
+
+        public ScreenBounds? HealthRegion { get; set; }
+
+        public ScreenBounds? DeathTextRegion { get; set; }
+
+        public string? DeathTemplateImagePath { get; set; }
+
+        public string? DeathMusicPath { get; set; }
+
+        public double TemplateSimilarityThreshold { get; set; } = 0.75;
+
+        public int HealthZeroPixelThreshold { get; set; } = 3;
+
+        public int ScanIntervalMs { get; set; } = 500;
+
+        public int CooldownSeconds { get; set; } = 8;
+    }
+
+    private sealed class TextTriggerDto
+    {
+        public bool Enabled { get; set; } = true;
+
+        public string? Text { get; set; }
+
+        public string? MusicPath { get; set; }
+
+        public int CooldownSeconds { get; set; } = 5;
     }
 
     private sealed class WatchRegionDto

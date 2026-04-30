@@ -120,8 +120,8 @@ public sealed class SelectionOverlayForm : Form
 
     private void DrawCenteredHint(Graphics graphics)
     {
-        using var panelBrush = new SolidBrush(Color.FromArgb(220, 22, 22, 22));
-        using var textBrush = new SolidBrush(Color.White);
+        using var panelBrush = new SolidBrush(Color.FromArgb(55, 180, 0, 0));
+        using var textBrush = new SolidBrush(Color.FromArgb(170, 255, 255, 255));
         using var titleFont = new Font(Font.FontFamily, 15, FontStyle.Bold);
         using var bodyFont = new Font(Font.FontFamily, 10, FontStyle.Regular);
         using var smallFont = new Font(Font.FontFamily, 9, FontStyle.Regular);
@@ -129,6 +129,7 @@ public sealed class SelectionOverlayForm : Form
         string title;
         string detail;
         string hint;
+        Size? promptSize = null;
 
         if (_stage == OverlayStage.Reviewing && ReviewData is not null)
         {
@@ -143,10 +144,11 @@ public sealed class SelectionOverlayForm : Form
             title = $"第 {currentStepIndex + 1}/{_steps.Count} 步：{step.Title}";
             detail = step.Detail;
             hint = "按住左键拖拽框选，按 Esc 或右键取消。";
+            promptSize = step.PromptSize;
         }
 
-        const int panelWidth = 640;
-        const int panelHeight = 132;
+        var panelWidth = promptSize?.Width ?? 640;
+        var panelHeight = promptSize?.Height ?? 132;
         var tipRect = new Rectangle(
             (ClientSize.Width - panelWidth) / 2,
             (ClientSize.Height - panelHeight) / 2,
@@ -394,7 +396,7 @@ public sealed class SelectionOverlayForm : Form
     }
 }
 
-public sealed record SelectionStep(string Title, string Detail);
+public sealed record SelectionStep(string Title, string Detail, Size? PromptSize = null);
 
 public sealed record SelectionOverlayContext(
     Bitmap Snapshot,

@@ -18,6 +18,11 @@ public sealed class ScreenCaptureService
         return bitmap;
     }
 
+    public Bitmap CaptureVirtualScreen()
+    {
+        return Capture(System.Windows.Forms.SystemInformation.VirtualScreen);
+    }
+
     public bool LooksBlankOrBlack(Bitmap bitmap)
     {
         if (bitmap.Width == 0 || bitmap.Height == 0)
