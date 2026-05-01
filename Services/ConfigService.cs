@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using AOUU.Models;
 
 namespace AOUU.Services;
@@ -134,12 +135,13 @@ public sealed class ConfigService
                 new TextTriggerConfig
                 {
                     Enabled = true,
+                    Region = null,
                     Text = "YOU DIED",
                     MusicPath = defaultAudioPath,
+                    ScanIntervalMs = 500,
                     CooldownSeconds = 5
                 }
             ],
-            DeathTrigger = new DeathTriggerConfig()
         };
     }
 
@@ -241,8 +243,10 @@ public sealed class ConfigService
                 config.TextTriggers.Add(new TextTriggerConfig
                 {
                     Enabled = textTriggerDto.Enabled,
+                    Region = IsValidBounds(textTriggerDto.Region) ? textTriggerDto.Region : null,
                     Text = triggerText,
                     MusicPath = textTriggerDto.MusicPath ?? string.Empty,
+                    ScanIntervalMs = Math.Clamp(textTriggerDto.ScanIntervalMs <= 0 ? 500 : textTriggerDto.ScanIntervalMs, 100, 10000),
                     CooldownSeconds = Math.Clamp(textTriggerDto.CooldownSeconds <= 0 ? 5 : textTriggerDto.CooldownSeconds, 1, 3600)
                 });
             }
@@ -250,7 +254,7 @@ public sealed class ConfigService
 
         if (dto.DeathTrigger is not null)
         {
-            config.DeathTrigger = MapDeathTriggerFromDto(dto.DeathTrigger);
+            MigrateDeathTrigger(config, dto.DeathTrigger);
         }
 
         if (dto.RegionCaptureHotkeys is not null)
@@ -359,11 +363,12 @@ public sealed class ConfigService
             TextTriggers = config.TextTriggers.Select(trigger => new TextTriggerDto
             {
                 Enabled = trigger.Enabled,
+                Region = trigger.Region,
                 Text = trigger.Text,
                 MusicPath = trigger.MusicPath,
+                ScanIntervalMs = trigger.ScanIntervalMs,
                 CooldownSeconds = trigger.CooldownSeconds
             }).ToList(),
-            DeathTrigger = MapDeathTriggerToDto(config.DeathTrigger),
             RegionCaptureHotkeys = MapRegionCaptureHotkeysToDto(config.RegionCaptureHotkeys),
             Regions = config.Regions.Select(region =>
             {
@@ -405,8 +410,9 @@ public sealed class ConfigService
         hotkeys.SkillRegionKeyName = TriggerMonitorService.GetKeyName(hotkeys.SkillRegionKey);
         hotkeys.HealthRegionKey = TriggerMonitorService.IsSupportedHotkey(dto.HealthRegionKey) ? dto.HealthRegionKey : 0x76;
         hotkeys.HealthRegionKeyName = TriggerMonitorService.GetKeyName(hotkeys.HealthRegionKey);
-        hotkeys.DeathTextRegionKey = TriggerMonitorService.IsSupportedHotkey(dto.DeathTextRegionKey) ? dto.DeathTextRegionKey : 0x78;
-        hotkeys.DeathTextRegionKeyName = TriggerMonitorService.GetKeyName(hotkeys.DeathTextRegionKey);
+        var ocrTextRegionKey = dto.OcrTextRegionKey != 0 ? dto.OcrTextRegionKey : dto.DeathTextRegionKey;
+        hotkeys.OcrTextRegionKey = TriggerMonitorService.IsSupportedHotkey(ocrTextRegionKey) ? ocrTextRegionKey : 0x78;
+        hotkeys.OcrTextRegionKeyName = TriggerMonitorService.GetKeyName(hotkeys.OcrTextRegionKey);
         return hotkeys;
     }
 
@@ -418,41 +424,38 @@ public sealed class ConfigService
             SkillRegionKeyName = config.SkillRegionKeyName,
             HealthRegionKey = config.HealthRegionKey,
             HealthRegionKeyName = config.HealthRegionKeyName,
-            DeathTextRegionKey = config.DeathTextRegionKey,
-            DeathTextRegionKeyName = config.DeathTextRegionKeyName
+            OcrTextRegionKey = config.OcrTextRegionKey,
+            OcrTextRegionKeyName = config.OcrTextRegionKeyName
         };
     }
 
-    private static DeathTriggerConfig MapDeathTriggerFromDto(DeathTriggerDto dto)
+    private static void MigrateDeathTrigger(AppConfig config, DeathTriggerDto dto)
     {
-        return new DeathTriggerConfig
+        var trigger = config.TextTriggers.FirstOrDefault();
+        if (trigger is null)
         {
-            Enabled = dto.Enabled,
-            HealthRegion = IsValidBounds(dto.HealthRegion) ? dto.HealthRegion : null,
-            DeathTextRegion = IsValidBounds(dto.DeathTextRegion) ? dto.DeathTextRegion : null,
-            DeathTemplateImagePath = dto.DeathTemplateImagePath ?? string.Empty,
-            DeathMusicPath = dto.DeathMusicPath ?? string.Empty,
-            TemplateSimilarityThreshold = Math.Clamp(dto.TemplateSimilarityThreshold <= 0 ? 0.75 : dto.TemplateSimilarityThreshold, 0.1, 1.0),
-            HealthZeroPixelThreshold = Math.Clamp(dto.HealthZeroPixelThreshold < 0 ? 3 : dto.HealthZeroPixelThreshold, 0, 200),
-            ScanIntervalMs = Math.Clamp(dto.ScanIntervalMs <= 0 ? 500 : dto.ScanIntervalMs, 100, 10000),
-            CooldownSeconds = Math.Clamp(dto.CooldownSeconds <= 0 ? 8 : dto.CooldownSeconds, 1, 3600)
-        };
-    }
+            trigger = new TextTriggerConfig();
+            config.TextTriggers.Add(trigger);
+        }
 
-    private static DeathTriggerDto MapDeathTriggerToDto(DeathTriggerConfig config)
-    {
-        return new DeathTriggerDto
+        if (dto.Enabled)
         {
-            Enabled = config.Enabled,
-            HealthRegion = config.HealthRegion,
-            DeathTextRegion = config.DeathTextRegion,
-            DeathTemplateImagePath = config.DeathTemplateImagePath,
-            DeathMusicPath = config.DeathMusicPath,
-            TemplateSimilarityThreshold = config.TemplateSimilarityThreshold,
-            HealthZeroPixelThreshold = config.HealthZeroPixelThreshold,
-            ScanIntervalMs = config.ScanIntervalMs,
-            CooldownSeconds = config.CooldownSeconds
-        };
+            trigger.Enabled = true;
+        }
+
+        if (IsValidBounds(dto.DeathTextRegion))
+        {
+            trigger.Region = dto.DeathTextRegion;
+        }
+
+        if (!string.IsNullOrWhiteSpace(dto.DeathMusicPath))
+        {
+            trigger.MusicPath = dto.DeathMusicPath;
+        }
+
+        trigger.Text = string.IsNullOrWhiteSpace(trigger.Text) ? "YOU DIED" : trigger.Text;
+        trigger.ScanIntervalMs = Math.Clamp(dto.ScanIntervalMs <= 0 ? trigger.ScanIntervalMs : dto.ScanIntervalMs, 100, 10000);
+        trigger.CooldownSeconds = Math.Clamp(dto.CooldownSeconds <= 0 ? trigger.CooldownSeconds : dto.CooldownSeconds, 1, 3600);
     }
 
     private static bool IsValidBounds(ScreenBounds? bounds)
@@ -498,6 +501,7 @@ public sealed class ConfigService
 
         public List<TextTriggerDto>? TextTriggers { get; set; }
 
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public DeathTriggerDto? DeathTrigger { get; set; }
 
         public RegionCaptureHotkeysDto? RegionCaptureHotkeys { get; set; }
@@ -515,6 +519,11 @@ public sealed class ConfigService
 
         public string? HealthRegionKeyName { get; set; }
 
+        public int OcrTextRegionKey { get; set; } = 0x78;
+
+        public string? OcrTextRegionKeyName { get; set; }
+
+        // Legacy name kept only so old configs can migrate to OcrTextRegionKey.
         public int DeathTextRegionKey { get; set; } = 0x78;
 
         public string? DeathTextRegionKeyName { get; set; }
@@ -528,11 +537,7 @@ public sealed class ConfigService
 
         public ScreenBounds? DeathTextRegion { get; set; }
 
-        public string? DeathTemplateImagePath { get; set; }
-
         public string? DeathMusicPath { get; set; }
-
-        public double TemplateSimilarityThreshold { get; set; } = 0.75;
 
         public int HealthZeroPixelThreshold { get; set; } = 3;
 
@@ -545,9 +550,13 @@ public sealed class ConfigService
     {
         public bool Enabled { get; set; } = true;
 
+        public ScreenBounds? Region { get; set; }
+
         public string? Text { get; set; }
 
         public string? MusicPath { get; set; }
+
+        public int ScanIntervalMs { get; set; } = 500;
 
         public int CooldownSeconds { get; set; } = 5;
     }

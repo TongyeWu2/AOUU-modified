@@ -42,8 +42,6 @@ public sealed class AppConfig
 
     public List<TextTriggerConfig> TextTriggers { get; set; } = [];
 
-    public DeathTriggerConfig DeathTrigger { get; set; } = new();
-
     public RegionCaptureHotkeysConfig RegionCaptureHotkeys { get; set; } = new();
 }
 
@@ -57,71 +55,22 @@ public sealed class RegionCaptureHotkeysConfig
 
     public string HealthRegionKeyName { get; set; } = "F7";
 
-    public int DeathTextRegionKey { get; set; } = 0x78;
+    public int OcrTextRegionKey { get; set; } = 0x78;
 
-    public string DeathTextRegionKeyName { get; set; } = "F9";
+    public string OcrTextRegionKeyName { get; set; } = "F9";
 }
 
 public sealed class TextTriggerConfig
 {
     public bool Enabled { get; set; } = true;
 
+    public ScreenBounds? Region { get; set; }
+
     public string Text { get; set; } = "YOU DIED";
 
     public string MusicPath { get; set; } = string.Empty;
 
-    public int CooldownSeconds { get; set; } = 5;
-}
-
-public sealed class DeathTriggerConfig
-{
-    public bool Enabled { get; set; }
-
-    public ScreenBounds? HealthRegion { get; set; }
-
-    public ScreenBounds? DeathTextRegion { get; set; }
-
-    public string DeathTemplateImagePath { get; set; } = string.Empty;
-
-    public string DeathMusicPath { get; set; } = string.Empty;
-
-    public double TemplateSimilarityThreshold { get; set; } = 0.75;
-
-    public int HealthZeroPixelThreshold { get; set; } = 3;
-
     public int ScanIntervalMs { get; set; } = 500;
 
-    public int CooldownSeconds { get; set; } = 8;
-
-    public DeathTriggerConfig Clone()
-    {
-        return new DeathTriggerConfig
-        {
-            Enabled = Enabled,
-            HealthRegion = CloneBounds(HealthRegion),
-            DeathTextRegion = CloneBounds(DeathTextRegion),
-            DeathTemplateImagePath = DeathTemplateImagePath,
-            DeathMusicPath = DeathMusicPath,
-            TemplateSimilarityThreshold = TemplateSimilarityThreshold,
-            HealthZeroPixelThreshold = HealthZeroPixelThreshold,
-            ScanIntervalMs = ScanIntervalMs,
-            CooldownSeconds = CooldownSeconds
-        };
-    }
-
-    private static ScreenBounds? CloneBounds(ScreenBounds? bounds)
-    {
-        if (bounds is null)
-        {
-            return null;
-        }
-
-        return new ScreenBounds
-        {
-            X = bounds.X,
-            Y = bounds.Y,
-            Width = bounds.Width,
-            Height = bounds.Height
-        };
-    }
+    public int CooldownSeconds { get; set; } = 5;
 }

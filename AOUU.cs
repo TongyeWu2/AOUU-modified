@@ -23,7 +23,7 @@ public partial class AOUU : Form
         RegionCapture,
         SkillRegionCapture,
         HealthRegionCapture,
-        DeathTextRegionCapture
+        OcrTextRegionCapture
     }
 
     private enum RegionSettingsMode
@@ -40,7 +40,7 @@ public partial class AOUU : Form
     private readonly Button _setRegionCaptureKeyButton;
     private readonly Button _setSkillRegionCaptureKeyButton;
     private readonly Button _setHealthRegionCaptureKeyButton;
-    private readonly Button _setDeathTextRegionCaptureKeyButton;
+    private readonly Button _setOcrTextRegionCaptureKeyButton;
     private readonly Button _setSkillRegionButton;
     private readonly Button _setHealthRegionButton;
     private readonly Button _removeRegionButton;
@@ -63,23 +63,14 @@ public partial class AOUU : Form
     private readonly TextBox _textTriggerTextBox;
     private readonly TextBox _textTriggerMusicPathBox;
     private readonly Button _browseTextTriggerMusicButton;
+    private readonly Button _setOcrTextRegionButton;
+    private readonly NumericUpDown _textTriggerScanIntervalBox;
     private readonly NumericUpDown _textTriggerCooldownBox;
-    private readonly CheckBox _deathTriggerEnabledBox;
-    private readonly Button _setDeathHealthRegionButton;
-    private readonly Button _setDeathTextRegionButton;
-    private readonly TextBox _deathTemplatePathBox;
-    private readonly Button _browseDeathTemplateButton;
-    private readonly TextBox _deathMusicPathBox;
-    private readonly Button _browseDeathMusicButton;
-    private readonly NumericUpDown _deathSimilarityThresholdBox;
-    private readonly NumericUpDown _deathHealthZeroThresholdBox;
-    private readonly NumericUpDown _deathScanIntervalBox;
-    private readonly NumericUpDown _deathCooldownBox;
     private readonly TriggerMonitorService _triggerMonitorService;
     private readonly TriggerMonitorService _regionCaptureMonitorService;
     private readonly TriggerMonitorService _skillRegionCaptureMonitorService;
     private readonly TriggerMonitorService _healthRegionCaptureMonitorService;
-    private readonly TriggerMonitorService _deathTextRegionCaptureMonitorService;
+    private readonly TriggerMonitorService _ocrTextRegionCaptureMonitorService;
     private readonly InputCaptureService _inputCaptureService;
     private readonly ConfigService _configService;
     private readonly ScreenCaptureService _screenCaptureService;
@@ -89,9 +80,7 @@ public partial class AOUU : Form
     private readonly RegionChangeDetector _regionChangeDetector;
     private readonly HealthBaselineService _healthBaselineService;
     private readonly ScreenTextRecognizer _screenTextRecognizer;
-    private readonly DeathTriggerService _deathTriggerService;
     private readonly System.Windows.Forms.Timer _textTriggerTimer;
-    private readonly System.Windows.Forms.Timer _deathTriggerTimer;
     private readonly Dictionary<string, DateTime> _lastTextTriggerUtc = [];
     private readonly CancellationTokenSource _shutdownCts = new();
     private readonly object _audioLock = new();
@@ -110,9 +99,6 @@ public partial class AOUU : Form
     private bool _isRegionCaptureRunning;
     private bool _isApplyingConfigToUi;
     private bool _isTextScanRunning;
-    private bool _isDeathScanRunning;
-    private bool _deathConditionActive;
-    private DateTime _lastDeathTriggerUtc = DateTime.MinValue;
     private DateTime _lastLeftClickSoundUtc = DateTime.MinValue;
     private DateTime _lastRightClickSoundUtc = DateTime.MinValue;
     private KeyConfigurationTarget _preparedKeyConfigurationTarget;
@@ -143,12 +129,6 @@ public partial class AOUU : Form
             _templateMatcher,
             _healthBarAnalyzerService,
             _circleLocatorService);
-        _deathTriggerService = new DeathTriggerService(
-            _screenCaptureService,
-            _templateMatcher,
-            _healthBarAnalyzerService,
-            _circleLocatorService);
-
         _triggerMonitorService = new TriggerMonitorService();
         _triggerMonitorService.Triggered += TriggerMonitorService_Triggered;
 
@@ -161,20 +141,14 @@ public partial class AOUU : Form
         _healthRegionCaptureMonitorService = new TriggerMonitorService();
         _healthRegionCaptureMonitorService.Triggered += HealthRegionCaptureMonitorService_Triggered;
 
-        _deathTextRegionCaptureMonitorService = new TriggerMonitorService();
-        _deathTextRegionCaptureMonitorService.Triggered += DeathTextRegionCaptureMonitorService_Triggered;
+        _ocrTextRegionCaptureMonitorService = new TriggerMonitorService();
+        _ocrTextRegionCaptureMonitorService.Triggered += OcrTextRegionCaptureMonitorService_Triggered;
 
         _textTriggerTimer = new System.Windows.Forms.Timer
         {
-            Interval = 1500
-        };
-        _textTriggerTimer.Tick += TextTriggerTimer_Tick;
-
-        _deathTriggerTimer = new System.Windows.Forms.Timer
-        {
             Interval = 500
         };
-        _deathTriggerTimer.Tick += DeathTriggerTimer_Tick;
+        _textTriggerTimer.Tick += TextTriggerTimer_Tick;
 
         _audioPathBox = new TextBox
         {
@@ -246,13 +220,13 @@ public partial class AOUU : Form
         };
         _setHealthRegionCaptureKeyButton.Click += (_, _) => ConfigureHotkey(KeyConfigurationTarget.HealthRegionCapture, "血条区域快捷键");
 
-        _setDeathTextRegionCaptureKeyButton = new Button
+        _setOcrTextRegionCaptureKeyButton = new Button
         {
             Left = 612,
             Top = 90,
             Width = 180
         };
-        _setDeathTextRegionCaptureKeyButton.Click += (_, _) => ConfigureHotkey(KeyConfigurationTarget.DeathTextRegionCapture, "死亡区域快捷键");
+        _setOcrTextRegionCaptureKeyButton.Click += (_, _) => ConfigureHotkey(KeyConfigurationTarget.OcrTextRegionCapture, "OCR文字区域快捷键");
 
         _watchWindowBox = new NumericUpDown
         {
@@ -393,159 +367,67 @@ public partial class AOUU : Form
         {
             Left = 24,
             Top = 348,
-            Width = 170,
-            Text = "屏幕文字触发"
+            Width = 130,
+            Text = "OCR文字触发"
         };
         _textTriggerEnabledBox.CheckedChanged += TextTriggerSettings_Changed;
 
+        _setOcrTextRegionButton = new Button
+        {
+            Left = 160,
+            Top = 344,
+            Width = 140,
+            Text = "设置OCR文字区域"
+        };
+        _setOcrTextRegionButton.Click += (_, _) => ConfigureOcrTextRegion();
+
         _textTriggerTextBox = new TextBox
         {
-            Left = 196,
+            Left = 374,
             Top = 346,
-            Width = 130
+            Width = 120
         };
         _textTriggerTextBox.TextChanged += TextTriggerSettings_Changed;
 
         _textTriggerMusicPathBox = new TextBox
         {
-            Left = 336,
-            Top = 346,
-            Width = 300,
+            Left = 160,
+            Top = 386,
+            Width = 334,
             ReadOnly = true,
             TabStop = false
         };
 
         _browseTextTriggerMusicButton = new Button
         {
-            Left = 646,
-            Top = 344,
-            Width = 90,
-            Text = "死亡音乐"
+            Left = 504,
+            Top = 384,
+            Width = 110,
+            Text = "触发音频"
         };
         _browseTextTriggerMusicButton.Click += BrowseTextTriggerMusicButton_Click;
+
+        _textTriggerScanIntervalBox = new NumericUpDown
+        {
+            Left = 700,
+            Top = 386,
+            Width = 70,
+            Minimum = 100,
+            Maximum = 10000,
+            Increment = 100
+        };
+        _textTriggerScanIntervalBox.ValueChanged += TextTriggerSettings_Changed;
 
         _textTriggerCooldownBox = new NumericUpDown
         {
             Left = 810,
-            Top = 346,
+            Top = 386,
             Width = 74,
             Minimum = 1,
             Maximum = 3600,
             Increment = 1
         };
         _textTriggerCooldownBox.ValueChanged += TextTriggerSettings_Changed;
-
-        _deathTriggerEnabledBox = new CheckBox
-        {
-            Left = 24,
-            Top = 386,
-            Width = 170,
-            Text = "死亡自动触发"
-        };
-        _deathTriggerEnabledBox.CheckedChanged += DeathTriggerSettings_Changed;
-
-        _setDeathHealthRegionButton = new Button
-        {
-            Left = 196,
-            Top = 382,
-            Width = 130,
-            Text = "死亡血条区域",
-            Visible = false,
-            Enabled = false
-        };
-        _setDeathHealthRegionButton.Click += (_, _) => ConfigureDeathRegion(isHealthRegion: true);
-
-        _setDeathTextRegionButton = new Button
-        {
-            Left = 196,
-            Top = 382,
-            Width = 130,
-            Text = "YOU DIED 区域"
-        };
-        _setDeathTextRegionButton.Click += (_, _) => ConfigureDeathRegion(isHealthRegion: false);
-
-        _deathTemplatePathBox = new TextBox
-        {
-            Left = 336,
-            Top = 384,
-            Width = 390,
-            ReadOnly = true,
-            TabStop = false
-        };
-
-        _browseDeathTemplateButton = new Button
-        {
-            Left = 736,
-            Top = 382,
-            Width = 148,
-            Text = "选择死亡模板"
-        };
-        _browseDeathTemplateButton.Click += BrowseDeathTemplateButton_Click;
-
-        _deathMusicPathBox = new TextBox
-        {
-            Left = 24,
-            Top = 424,
-            Width = 442,
-            ReadOnly = true,
-            TabStop = false
-        };
-
-        _browseDeathMusicButton = new Button
-        {
-            Left = 476,
-            Top = 422,
-            Width = 130,
-            Text = "选择死亡音乐"
-        };
-        _browseDeathMusicButton.Click += BrowseDeathMusicButton_Click;
-
-        _deathSimilarityThresholdBox = new NumericUpDown
-        {
-            Left = 700,
-            Top = 424,
-            Width = 70,
-            Minimum = 0.10M,
-            Maximum = 1.00M,
-            Increment = 0.05M,
-            DecimalPlaces = 2
-        };
-        _deathSimilarityThresholdBox.ValueChanged += DeathTriggerSettings_Changed;
-
-        _deathHealthZeroThresholdBox = new NumericUpDown
-        {
-            Left = 814,
-            Top = 424,
-            Width = 70,
-            Minimum = 0,
-            Maximum = 200,
-            Increment = 1,
-            Visible = false,
-            Enabled = false
-        };
-        _deathHealthZeroThresholdBox.ValueChanged += DeathTriggerSettings_Changed;
-
-        _deathScanIntervalBox = new NumericUpDown
-        {
-            Left = 700,
-            Top = 464,
-            Width = 70,
-            Minimum = 100,
-            Maximum = 10000,
-            Increment = 100
-        };
-        _deathScanIntervalBox.ValueChanged += DeathTriggerSettings_Changed;
-
-        _deathCooldownBox = new NumericUpDown
-        {
-            Left = 814,
-            Top = 464,
-            Width = 70,
-            Minimum = 1,
-            Maximum = 3600,
-            Increment = 1
-        };
-        _deathCooldownBox.ValueChanged += DeathTriggerSettings_Changed;
 
         _setSkillRegionButton = new Button
         {
@@ -606,7 +488,7 @@ public partial class AOUU : Form
         Controls.Add(_setRegionCaptureKeyButton);
         Controls.Add(_setSkillRegionCaptureKeyButton);
         Controls.Add(_setHealthRegionCaptureKeyButton);
-        Controls.Add(_setDeathTextRegionCaptureKeyButton);
+        Controls.Add(_setOcrTextRegionCaptureKeyButton);
         Controls.Add(new Label
         {
             Left = 250,
@@ -673,57 +555,33 @@ public partial class AOUU : Form
         });
         Controls.Add(_soundpadSoundIndexBox);
         Controls.Add(_textTriggerEnabledBox);
+        Controls.Add(_setOcrTextRegionButton);
+        Controls.Add(new Label
+        {
+            Left = 310,
+            Top = 350,
+            Width = 58,
+            Text = "目标文字"
+        });
         Controls.Add(_textTriggerTextBox);
         Controls.Add(_textTriggerMusicPathBox);
         Controls.Add(_browseTextTriggerMusicButton);
         Controls.Add(new Label
         {
-            Left = 746,
-            Top = 350,
+            Left = 626,
+            Top = 390,
+            Width = 68,
+            Text = "扫描ms"
+        });
+        Controls.Add(_textTriggerScanIntervalBox);
+        Controls.Add(new Label
+        {
+            Left = 778,
+            Top = 390,
             Width = 58,
             Text = "冷却秒"
         });
         Controls.Add(_textTriggerCooldownBox);
-        Controls.Add(_deathTriggerEnabledBox);
-        Controls.Add(_setDeathHealthRegionButton);
-        Controls.Add(_setDeathTextRegionButton);
-        Controls.Add(_deathTemplatePathBox);
-        Controls.Add(_browseDeathTemplateButton);
-        Controls.Add(_deathMusicPathBox);
-        Controls.Add(_browseDeathMusicButton);
-        Controls.Add(new Label
-        {
-            Left = 626,
-            Top = 428,
-            Width = 68,
-            Text = "相似度"
-        });
-        Controls.Add(_deathSimilarityThresholdBox);
-        Controls.Add(new Label
-        {
-            Left = 778,
-            Top = 428,
-            Width = 34,
-            Text = "空血",
-            Visible = false
-        });
-        Controls.Add(_deathHealthZeroThresholdBox);
-        Controls.Add(new Label
-        {
-            Left = 626,
-            Top = 468,
-            Width = 68,
-            Text = "扫描ms"
-        });
-        Controls.Add(_deathScanIntervalBox);
-        Controls.Add(new Label
-        {
-            Left = 778,
-            Top = 468,
-            Width = 34,
-            Text = "冷却"
-        });
-        Controls.Add(_deathCooldownBox);
         Controls.Add(new Label
         {
             Left = 24,
@@ -755,8 +613,7 @@ public partial class AOUU : Form
         _triggerMonitorService.Enabled = true;
         _regionCaptureMonitorService.Enabled = true;
         SetRegionCaptureHotkeyMonitorsEnabled(true);
-        _textTriggerTimer.Start();
-        SyncDeathTriggerTimer();
+        SyncTextTriggerTimer();
     }
 
     private void BrowseButton_Click(object? sender, EventArgs e)
@@ -931,11 +788,11 @@ public partial class AOUU : Form
             _config.RegionCaptureHotkeys.HealthRegionKeyName = keyName;
             _healthRegionCaptureMonitorService.TriggerKey = keyCode;
         }
-        else if (target == KeyConfigurationTarget.DeathTextRegionCapture)
+        else if (target == KeyConfigurationTarget.OcrTextRegionCapture)
         {
-            _config.RegionCaptureHotkeys.DeathTextRegionKey = keyCode;
-            _config.RegionCaptureHotkeys.DeathTextRegionKeyName = keyName;
-            _deathTextRegionCaptureMonitorService.TriggerKey = keyCode;
+            _config.RegionCaptureHotkeys.OcrTextRegionKey = keyCode;
+            _config.RegionCaptureHotkeys.OcrTextRegionKeyName = keyName;
+            _ocrTextRegionCaptureMonitorService.TriggerKey = keyCode;
         }
 
         SaveConfig();
@@ -951,7 +808,7 @@ public partial class AOUU : Form
             KeyConfigurationTarget.RegionCapture => _config.RegionCaptureKeyName,
             KeyConfigurationTarget.SkillRegionCapture => _config.RegionCaptureHotkeys.SkillRegionKeyName,
             KeyConfigurationTarget.HealthRegionCapture => _config.RegionCaptureHotkeys.HealthRegionKeyName,
-            KeyConfigurationTarget.DeathTextRegionCapture => _config.RegionCaptureHotkeys.DeathTextRegionKeyName,
+            KeyConfigurationTarget.OcrTextRegionCapture => _config.RegionCaptureHotkeys.OcrTextRegionKeyName,
             _ => string.Empty
         };
     }
@@ -979,7 +836,7 @@ public partial class AOUU : Form
         yield return (KeyConfigurationTarget.RegionCapture, "截图键", _config.RegionCaptureKey);
         yield return (KeyConfigurationTarget.SkillRegionCapture, "技能区域快捷键", _config.RegionCaptureHotkeys.SkillRegionKey);
         yield return (KeyConfigurationTarget.HealthRegionCapture, "血条区域快捷键", _config.RegionCaptureHotkeys.HealthRegionKey);
-        yield return (KeyConfigurationTarget.DeathTextRegionCapture, "死亡区域快捷键", _config.RegionCaptureHotkeys.DeathTextRegionKey);
+        yield return (KeyConfigurationTarget.OcrTextRegionCapture, "OCR文字区域快捷键", _config.RegionCaptureHotkeys.OcrTextRegionKey);
     }
 
     private void TimingBox_ValueChanged(object? sender, EventArgs e)
@@ -1095,10 +952,12 @@ public partial class AOUU : Form
         trigger.Text = string.IsNullOrWhiteSpace(_textTriggerTextBox.Text)
             ? "YOU DIED"
             : _textTriggerTextBox.Text.Trim();
+        trigger.ScanIntervalMs = (int)_textTriggerScanIntervalBox.Value;
         trigger.CooldownSeconds = (int)_textTriggerCooldownBox.Value;
 
         SaveConfig();
         UpdateTextTriggerDisplay();
+        SyncTextTriggerTimer();
         UpdateStatus();
     }
 
@@ -1122,26 +981,7 @@ public partial class AOUU : Form
         UpdateStatus();
     }
 
-    private void DeathTriggerSettings_Changed(object? sender, EventArgs e)
-    {
-        if (_isApplyingConfigToUi)
-        {
-            return;
-        }
-
-        _config.DeathTrigger.Enabled = _deathTriggerEnabledBox.Checked;
-        _config.DeathTrigger.TemplateSimilarityThreshold = (double)_deathSimilarityThresholdBox.Value;
-        _config.DeathTrigger.HealthZeroPixelThreshold = (int)_deathHealthZeroThresholdBox.Value;
-        _config.DeathTrigger.ScanIntervalMs = (int)_deathScanIntervalBox.Value;
-        _config.DeathTrigger.CooldownSeconds = (int)_deathCooldownBox.Value;
-
-        SaveConfig();
-        UpdateDeathTriggerDisplay();
-        SyncDeathTriggerTimer();
-        UpdateStatus();
-    }
-
-    private void ConfigureDeathRegion(bool isHealthRegion)
+    private void ConfigureOcrTextRegion()
     {
         if (_isRecognitionRunning || _isRegionCaptureRunning || _isConfiguringKey)
         {
@@ -1152,43 +992,31 @@ public partial class AOUU : Form
         _triggerMonitorService.Enabled = false;
         _regionCaptureMonitorService.Enabled = false;
         SetRegionCaptureHotkeyMonitorsEnabled(false);
-        _deathTriggerTimer.Stop();
+        _textTriggerTimer.Stop();
         HideForSelection();
 
         try
         {
-            var deathPromptSize = isHealthRegion ? null : TryGetDeathTemplatePromptSize();
-            var step = isHealthRegion
-                ? new SelectionStep("框选死亡检测血条区域", "尽量包含左侧等级圆和红色血条。")
-                : new SelectionStep(
-                    "框选 YOU DIED 文字区域",
-                    "只框住死亡提示文字附近，避免包含太多会变化的背景。",
-                    deathPromptSize);
+            var step = new SelectionStep(
+                "框选 OCR 文字触发区域",
+                "只框住要识别的目标文字附近，避免包含太多会变化的背景。");
 
             if (!TrySelectBoundsSession(step, out var selectedBounds))
             {
-                SetStatus("已取消死亡触发区域框选。");
+                SetStatus("已取消 OCR 文字区域框选。");
                 return;
             }
 
-            if (isHealthRegion)
-            {
-                _config.DeathTrigger.HealthRegion = ScreenBounds.FromRectangle(selectedBounds);
-                SetStatus("死亡触发血条区域已更新。");
-            }
-            else
-            {
-                _config.DeathTrigger.DeathTextRegion = ScreenBounds.FromRectangle(selectedBounds);
-                SetStatus("YOU DIED 区域已更新。");
-            }
+            EnsureDefaultTextTrigger().Region = ScreenBounds.FromRectangle(selectedBounds);
+            SetStatus("OCR 文字触发区域已更新。");
 
             SaveConfig();
-            UpdateDeathTriggerDisplay();
+            UpdateTextTriggerDisplay();
             RefreshRegionList();
         }
         catch (Exception ex)
         {
-            SetStatus($"死亡触发区域框选失败：{ex.Message}");
+            SetStatus($"OCR 文字区域框选失败：{ex.Message}");
         }
         finally
         {
@@ -1196,72 +1024,22 @@ public partial class AOUU : Form
             _triggerMonitorService.Enabled = true;
             _regionCaptureMonitorService.Enabled = true;
             SetRegionCaptureHotkeyMonitorsEnabled(true);
-            SyncDeathTriggerTimer();
+            SyncTextTriggerTimer();
             RestoreAfterSelection();
-        }
-    }
-
-    private void BrowseDeathTemplateButton_Click(object? sender, EventArgs e)
-    {
-        using var fileDialog = new OpenFileDialog
-        {
-            Filter = "图片文件|*.png;*.jpg;*.jpeg;*.bmp|所有文件|*.*",
-            FileName = Path.GetFileName(_config.DeathTrigger.DeathTemplateImagePath)
-        };
-
-        if (fileDialog.ShowDialog(this) != DialogResult.OK)
-        {
-            return;
-        }
-
-        _config.DeathTrigger.DeathTemplateImagePath = fileDialog.FileName;
-        SaveConfig();
-        UpdateDeathTriggerDisplay();
-        UpdateStatus();
-    }
-
-    private void BrowseDeathMusicButton_Click(object? sender, EventArgs e)
-    {
-        using var fileDialog = new OpenFileDialog
-        {
-            Filter = "音频文件|*.mp3;*.wav",
-            FileName = Path.GetFileName(_config.DeathTrigger.DeathMusicPath)
-        };
-
-        if (fileDialog.ShowDialog(this) != DialogResult.OK)
-        {
-            return;
-        }
-
-        _config.DeathTrigger.DeathMusicPath = fileDialog.FileName;
-        SaveConfig();
-        UpdateDeathTriggerDisplay();
-        UpdateStatus();
-    }
-
-    private Size? TryGetDeathTemplatePromptSize()
-    {
-        var templatePath = _config.DeathTrigger.DeathTemplateImagePath;
-        if (string.IsNullOrWhiteSpace(templatePath) || !File.Exists(templatePath))
-        {
-            return null;
-        }
-
-        try
-        {
-            using var image = Image.FromFile(templatePath);
-            return image.Size;
-        }
-        catch
-        {
-            return null;
         }
     }
 
     private async void TextTriggerTimer_Tick(object? sender, EventArgs e)
     {
-        if (_isTextScanRunning || _isRegionCaptureRunning || _config.TextTriggers.All(trigger => !trigger.Enabled))
+        var trigger = EnsureDefaultTextTrigger();
+        if (_isTextScanRunning || _isRegionCaptureRunning || _isConfiguringKey || !trigger.Enabled)
         {
+            return;
+        }
+
+        if (trigger.Region is null || trigger.Region.Width <= 0 || trigger.Region.Height <= 0)
+        {
+            SetStatus("OCR 文字触发缺少检测区域。");
             return;
         }
 
@@ -1269,7 +1047,7 @@ public partial class AOUU : Form
 
         try
         {
-            using var screenshot = _screenCaptureService.CaptureVirtualScreen();
+            using var screenshot = _screenCaptureService.Capture(trigger.Region.ToRectangle());
             var result = await Task.Run(() =>
             {
                 var success = _screenTextRecognizer.TryRecognize(screenshot, out var text, out var error);
@@ -1278,20 +1056,19 @@ public partial class AOUU : Form
 
             if (!result.Success)
             {
-                SetStatus($"屏幕文字识别不可用：{result.ErrorMessage}");
+                SetStatus($"OCR 文字识别不可用：{result.ErrorMessage}");
                 _textTriggerTimer.Stop();
-                _textTriggerEnabledBox.Checked = false;
                 return;
             }
 
-            HandleRecognizedScreenText(result.Text);
+            HandleRecognizedScreenText(trigger, result.Text);
         }
         catch (OperationCanceledException)
         {
         }
         catch (Exception ex)
         {
-            SetStatus($"屏幕文字识别失败：{ex.Message}");
+            SetStatus($"OCR 文字识别失败：{ex.Message}");
         }
         finally
         {
@@ -1299,126 +1076,39 @@ public partial class AOUU : Form
         }
     }
 
-    private void HandleRecognizedScreenText(string recognizedText)
+    private void HandleRecognizedScreenText(TextTriggerConfig trigger, string recognizedText)
     {
-        var normalizedRecognizedText = NormalizeRecognizedText(recognizedText);
-        if (string.IsNullOrWhiteSpace(normalizedRecognizedText))
+        var normalizedRecognizedText = OcrTextTriggerMatcher.Normalize(recognizedText);
+        if (string.IsNullOrWhiteSpace(normalizedRecognizedText) ||
+            !OcrTextTriggerMatcher.IsMatch(recognizedText, trigger.Text))
         {
             return;
         }
 
         var now = DateTime.UtcNow;
-        foreach (var trigger in _config.TextTriggers.Where(trigger => trigger.Enabled))
-        {
-            var triggerText = NormalizeRecognizedText(trigger.Text);
-            if (string.IsNullOrWhiteSpace(triggerText) ||
-                !normalizedRecognizedText.Contains(triggerText, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            var cooldown = TimeSpan.FromSeconds(Math.Clamp(trigger.CooldownSeconds, 1, 3600));
-            if (_lastTextTriggerUtc.TryGetValue(triggerText, out var lastTriggeredAt) &&
-                now - lastTriggeredAt < cooldown)
-            {
-                continue;
-            }
-
-            _lastTextTriggerUtc[triggerText] = now;
-
-            if (!File.Exists(trigger.MusicPath))
-            {
-                SetStatus($"检测到文字“{trigger.Text}”，但音乐文件不存在：{trigger.MusicPath}");
-                continue;
-            }
-
-            if (!PlayAudioPath(trigger.MusicPath, out var playbackMessage))
-            {
-                SetStatus(playbackMessage);
-                continue;
-            }
-
-            SetStatus($"检测到文字“{trigger.Text}”，已播放对应音乐。");
-        }
-    }
-
-    private static string NormalizeRecognizedText(string text)
-    {
-        return string.Join(' ', text.Split([' ', '\r', '\n', '\t'], StringSplitOptions.RemoveEmptyEntries));
-    }
-
-    private async void DeathTriggerTimer_Tick(object? sender, EventArgs e)
-    {
-        if (_isDeathScanRunning || _isRegionCaptureRunning || _isConfiguringKey || !_config.DeathTrigger.Enabled)
+        var triggerText = OcrTextTriggerMatcher.Normalize(trigger.Text);
+        var cooldown = TimeSpan.FromSeconds(Math.Clamp(trigger.CooldownSeconds, 1, 3600));
+        if (_lastTextTriggerUtc.TryGetValue(triggerText, out var lastTriggeredAt) &&
+            now - lastTriggeredAt < cooldown)
         {
             return;
         }
 
-        _isDeathScanRunning = true;
+        _lastTextTriggerUtc[triggerText] = now;
 
-        try
+        if (!File.Exists(trigger.MusicPath))
         {
-            var configSnapshot = _config.DeathTrigger.Clone();
-            var result = await Task.Run(() => _deathTriggerService.Evaluate(configSnapshot), _shutdownCts.Token);
-
-            if (!result.Matched)
-            {
-                _deathConditionActive = false;
-                if (IsDeathTriggerConfigurationWarning(result.Message))
-                {
-                    SetStatus(result.Message);
-                }
-                return;
-            }
-
-            var wasAlreadyActive = _deathConditionActive;
-            _deathConditionActive = true;
-            if (wasAlreadyActive)
-            {
-                return;
-            }
-
-            var now = DateTime.UtcNow;
-            var cooldown = TimeSpan.FromSeconds(Math.Clamp(configSnapshot.CooldownSeconds, 1, 3600));
-            if (now - _lastDeathTriggerUtc < cooldown)
-            {
-                return;
-            }
-
-            if (string.IsNullOrWhiteSpace(configSnapshot.DeathMusicPath) || !File.Exists(configSnapshot.DeathMusicPath))
-            {
-                SetStatus($"死亡触发已命中，但死亡音乐不存在：{configSnapshot.DeathMusicPath}");
-                return;
-            }
-
-            if (!PlayAudioPath(configSnapshot.DeathMusicPath, out var playbackMessage))
-            {
-                SetStatus(playbackMessage);
-                return;
-            }
-
-            _lastDeathTriggerUtc = now;
-            SetStatus($"检测到死亡画面，已播放死亡音乐。{result.Message}");
+            SetStatus($"检测到 OCR 文字“{trigger.Text}”，但音频文件不存在：{trigger.MusicPath}");
+            return;
         }
-        catch (OperationCanceledException)
+
+        if (!PlayAudioPath(trigger.MusicPath, out var playbackMessage))
         {
+            SetStatus(playbackMessage);
+            return;
         }
-        catch (Exception ex)
-        {
-            _deathConditionActive = false;
-            SetStatus($"死亡触发检测失败：{ex.Message}");
-        }
-        finally
-        {
-            _isDeathScanRunning = false;
-        }
-    }
 
-    private static bool IsDeathTriggerConfigurationWarning(string message)
-    {
-        return message.Contains("缺少", StringComparison.OrdinalIgnoreCase) ||
-               message.Contains("不存在", StringComparison.OrdinalIgnoreCase) ||
-               message.Contains("黑屏", StringComparison.OrdinalIgnoreCase);
+        SetStatus($"检测到 OCR 文字“{trigger.Text}”（{normalizedRecognizedText}），已播放触发音频。");
     }
 
     private async void TriggerMonitorService_Triggered(object? sender, EventArgs e)
@@ -1498,9 +1188,9 @@ public partial class AOUU : Form
         BeginRegionCaptureFromHotkey(() => ConfigureSingleRegionSession(RegionSettingsMode.Health, restoreWindowAfter: true));
     }
 
-    private void DeathTextRegionCaptureMonitorService_Triggered(object? sender, EventArgs e)
+    private void OcrTextRegionCaptureMonitorService_Triggered(object? sender, EventArgs e)
     {
-        BeginRegionCaptureFromHotkey(() => ConfigureDeathRegion(isHealthRegion: false));
+        BeginRegionCaptureFromHotkey(ConfigureOcrTextRegion);
     }
 
     private void BeginRegionCaptureFromHotkey(Action action)
@@ -2293,15 +1983,10 @@ public partial class AOUU : Form
             var textTrigger = EnsureDefaultTextTrigger();
             _textTriggerEnabledBox.Checked = textTrigger.Enabled;
             _textTriggerTextBox.Text = textTrigger.Text;
+            _textTriggerScanIntervalBox.Value = Math.Clamp(textTrigger.ScanIntervalMs, (int)_textTriggerScanIntervalBox.Minimum, (int)_textTriggerScanIntervalBox.Maximum);
             _textTriggerCooldownBox.Value = Math.Clamp(textTrigger.CooldownSeconds, (int)_textTriggerCooldownBox.Minimum, (int)_textTriggerCooldownBox.Maximum);
             UpdateTextTriggerDisplay();
-            _deathTriggerEnabledBox.Checked = _config.DeathTrigger.Enabled;
-            _deathSimilarityThresholdBox.Value = Math.Clamp((decimal)_config.DeathTrigger.TemplateSimilarityThreshold, _deathSimilarityThresholdBox.Minimum, _deathSimilarityThresholdBox.Maximum);
-            _deathHealthZeroThresholdBox.Value = Math.Clamp(_config.DeathTrigger.HealthZeroPixelThreshold, (int)_deathHealthZeroThresholdBox.Minimum, (int)_deathHealthZeroThresholdBox.Maximum);
-            _deathScanIntervalBox.Value = Math.Clamp(_config.DeathTrigger.ScanIntervalMs, (int)_deathScanIntervalBox.Minimum, (int)_deathScanIntervalBox.Maximum);
-            _deathCooldownBox.Value = Math.Clamp(_config.DeathTrigger.CooldownSeconds, (int)_deathCooldownBox.Minimum, (int)_deathCooldownBox.Maximum);
-            UpdateDeathTriggerDisplay();
-            SyncDeathTriggerTimer();
+            SyncTextTriggerTimer();
             UpdateRegionCaptureHotkeyButtonText();
             UpdateThresholdDisplay();
             UpdateVolumeDisplay();
@@ -2310,7 +1995,7 @@ public partial class AOUU : Form
             _regionCaptureMonitorService.TriggerKey = _config.RegionCaptureKey;
             _skillRegionCaptureMonitorService.TriggerKey = _config.RegionCaptureHotkeys.SkillRegionKey;
             _healthRegionCaptureMonitorService.TriggerKey = _config.RegionCaptureHotkeys.HealthRegionKey;
-            _deathTextRegionCaptureMonitorService.TriggerKey = _config.RegionCaptureHotkeys.DeathTextRegionKey;
+            _ocrTextRegionCaptureMonitorService.TriggerKey = _config.RegionCaptureHotkeys.OcrTextRegionKey;
         }
         finally
         {
@@ -2328,9 +2013,10 @@ public partial class AOUU : Form
             _regionsListBox.Items.Add(region);
         }
 
-        if (_config.DeathTrigger.DeathTextRegion is not null)
+        var textTrigger = EnsureDefaultTextTrigger();
+        if (textTrigger.Region is not null)
         {
-            _regionsListBox.Items.Add($"死亡文字区域 | YOU DIED | {_config.DeathTrigger.DeathTextRegion}");
+            _regionsListBox.Items.Add($"OCR文字触发区域 | {textTrigger.Text} | {textTrigger.Region}");
         }
 
         _regionsListBox.EndUpdate();
@@ -2355,12 +2041,8 @@ public partial class AOUU : Form
         textTrigger.Text = string.IsNullOrWhiteSpace(_textTriggerTextBox.Text)
             ? "YOU DIED"
             : _textTriggerTextBox.Text.Trim();
+        textTrigger.ScanIntervalMs = (int)_textTriggerScanIntervalBox.Value;
         textTrigger.CooldownSeconds = (int)_textTriggerCooldownBox.Value;
-        _config.DeathTrigger.Enabled = _deathTriggerEnabledBox.Checked;
-        _config.DeathTrigger.TemplateSimilarityThreshold = (double)_deathSimilarityThresholdBox.Value;
-        _config.DeathTrigger.HealthZeroPixelThreshold = (int)_deathHealthZeroThresholdBox.Value;
-        _config.DeathTrigger.ScanIntervalMs = (int)_deathScanIntervalBox.Value;
-        _config.DeathTrigger.CooldownSeconds = (int)_deathCooldownBox.Value;
         _configService.Save(_config);
     }
 
@@ -2368,7 +2050,7 @@ public partial class AOUU : Form
     {
         _setSkillRegionCaptureKeyButton.Text = $"设置技能区域快捷键：{_config.RegionCaptureHotkeys.SkillRegionKeyName}";
         _setHealthRegionCaptureKeyButton.Text = $"设置血条区域快捷键：{_config.RegionCaptureHotkeys.HealthRegionKeyName}";
-        _setDeathTextRegionCaptureKeyButton.Text = $"设置死亡区域快捷键：{_config.RegionCaptureHotkeys.DeathTextRegionKeyName}";
+        _setOcrTextRegionCaptureKeyButton.Text = $"设置OCR文字区域快捷键：{_config.RegionCaptureHotkeys.OcrTextRegionKeyName}";
     }
 
     private void UpdateAudioDisplay()
@@ -2393,37 +2075,26 @@ public partial class AOUU : Form
     private void UpdateTextTriggerDisplay()
     {
         var trigger = EnsureDefaultTextTrigger();
+        var regionText = trigger.Region is null
+            ? "未设置OCR区域"
+            : $"OCR区域 {trigger.Region}";
         _textTriggerMusicPathBox.Text = string.IsNullOrWhiteSpace(trigger.MusicPath)
-            ? "未选择死亡音乐"
-            : Path.GetFileName(trigger.MusicPath);
+            ? $"{regionText} / 未选择触发音频"
+            : $"{regionText} / {Path.GetFileName(trigger.MusicPath)}";
     }
 
-    private void UpdateDeathTriggerDisplay()
+    private void SyncTextTriggerTimer()
     {
-        var textRegionText = _config.DeathTrigger.DeathTextRegion is null
-            ? "未设文字"
-            : $"文字 {_config.DeathTrigger.DeathTextRegion}";
+        var trigger = EnsureDefaultTextTrigger();
+        _textTriggerTimer.Interval = Math.Clamp(trigger.ScanIntervalMs, 100, 10000);
 
-        _deathTemplatePathBox.Text = string.IsNullOrWhiteSpace(_config.DeathTrigger.DeathTemplateImagePath)
-            ? $"{textRegionText} / 未选模板"
-            : Path.GetFileName(_config.DeathTrigger.DeathTemplateImagePath);
-        _deathMusicPathBox.Text = string.IsNullOrWhiteSpace(_config.DeathTrigger.DeathMusicPath)
-            ? "未选择死亡触发音乐"
-            : Path.GetFileName(_config.DeathTrigger.DeathMusicPath);
-    }
-
-    private void SyncDeathTriggerTimer()
-    {
-        _deathTriggerTimer.Interval = Math.Clamp(_config.DeathTrigger.ScanIntervalMs, 100, 10000);
-
-        if (_config.DeathTrigger.Enabled && !_isRegionCaptureRunning)
+        if (trigger.Enabled && !_isRegionCaptureRunning)
         {
-            _deathTriggerTimer.Start();
+            _textTriggerTimer.Start();
         }
         else
         {
-            _deathTriggerTimer.Stop();
-            _deathConditionActive = false;
+            _textTriggerTimer.Stop();
         }
     }
 
@@ -2431,7 +2102,7 @@ public partial class AOUU : Form
     {
         _skillRegionCaptureMonitorService.Enabled = enabled;
         _healthRegionCaptureMonitorService.Enabled = enabled;
-        _deathTextRegionCaptureMonitorService.Enabled = enabled;
+        _ocrTextRegionCaptureMonitorService.Enabled = enabled;
     }
 
     private TextTriggerConfig EnsureDefaultTextTrigger()
@@ -2445,8 +2116,10 @@ public partial class AOUU : Form
         trigger = new TextTriggerConfig
         {
             Enabled = true,
+            Region = null,
             Text = "YOU DIED",
             MusicPath = _config.AudioPath,
+            ScanIntervalMs = 500,
             CooldownSeconds = 5
         };
         _config.TextTriggers.Add(trigger);
@@ -2466,10 +2139,9 @@ public partial class AOUU : Form
             outputDevice = $"Soundpad 第 {_config.SoundpadSoundIndex} 个声音";
         }
         var enabledTextTriggerCount = _config.TextTriggers.Count(trigger => trigger.Enabled);
-        var deathTriggerState = _config.DeathTrigger.Enabled ? "开" : "关";
         var regionCount = _config.Regions.Count;
         _statusLabel.Text =
-            $"{audioState}。输出：{outputDevice}。文字触发：{enabledTextTriggerCount}。死亡触发：{deathTriggerState}。技能触发键：{_config.TriggerKeyName}。截图键：{_config.RegionCaptureKeyName}。检测区域数量：{regionCount}。";
+            $"{audioState}。输出：{outputDevice}。OCR文字触发：{enabledTextTriggerCount}。技能触发键：{_config.TriggerKeyName}。截图键：{_config.RegionCaptureKeyName}。检测区域数量：{regionCount}。";
     }
 
     private void UpdateThresholdDisplay()
@@ -2525,13 +2197,10 @@ public partial class AOUU : Form
         _regionCaptureMonitorService.Dispose();
         _skillRegionCaptureMonitorService.Dispose();
         _healthRegionCaptureMonitorService.Dispose();
-        _deathTextRegionCaptureMonitorService.Dispose();
+        _ocrTextRegionCaptureMonitorService.Dispose();
         _textTriggerTimer.Stop();
         _textTriggerTimer.Tick -= TextTriggerTimer_Tick;
         _textTriggerTimer.Dispose();
-        _deathTriggerTimer.Stop();
-        _deathTriggerTimer.Tick -= DeathTriggerTimer_Tick;
-        _deathTriggerTimer.Dispose();
         _inputCaptureService.InputPressed -= InputCaptureService_InputPressed;
         _inputCaptureService.Dispose();
         _healthBaselineService.Dispose();
