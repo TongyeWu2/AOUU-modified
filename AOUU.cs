@@ -23,7 +23,8 @@ public partial class AOUU : Form
         RegionCapture,
         SkillRegionCapture,
         HealthRegionCapture,
-        OcrTextRegionCapture
+        OcrTextRegionCapture,
+        ImageHotkeyTrigger
     }
 
     private enum RegionSettingsMode
@@ -66,6 +67,16 @@ public partial class AOUU : Form
     private readonly Button _setOcrTextRegionButton;
     private readonly NumericUpDown _textTriggerScanIntervalBox;
     private readonly NumericUpDown _textTriggerCooldownBox;
+    private readonly CheckBox _imageHotkeyTriggerEnabledBox;
+    private readonly Button _setImageHotkeyRegionButton;
+    private readonly TextBox _imageHotkeyRegionBox;
+    private readonly TextBox _imageHotkeyTemplatePathBox;
+    private readonly Button _browseImageHotkeyTemplateButton;
+    private readonly NumericUpDown _imageHotkeySimilarityBox;
+    private readonly Button _setImageHotkeyButton;
+    private readonly TextBox _imageHotkeyAudioPathBox;
+    private readonly Button _browseImageHotkeyAudioButton;
+    private readonly NumericUpDown _imageHotkeyCooldownBox;
     private readonly TriggerMonitorService _triggerMonitorService;
     private readonly TriggerMonitorService _regionCaptureMonitorService;
     private readonly TriggerMonitorService _skillRegionCaptureMonitorService;
@@ -81,6 +92,7 @@ public partial class AOUU : Form
     private readonly HealthBaselineService _healthBaselineService;
     private readonly ScreenTextRecognizer _screenTextRecognizer;
     private readonly System.Windows.Forms.Timer _textTriggerTimer;
+    private readonly System.Windows.Forms.Timer _imageHotkeyScanTimer;
     private readonly Dictionary<string, DateTime> _lastTextTriggerUtc = [];
     private readonly CancellationTokenSource _shutdownCts = new();
     private readonly object _audioLock = new();
@@ -99,6 +111,10 @@ public partial class AOUU : Form
     private bool _isRegionCaptureRunning;
     private bool _isApplyingConfigToUi;
     private bool _isTextScanRunning;
+    private bool _isImageHotkeyScanRunning;
+    private bool _imageHotkeyMatched;
+    private double _lastImageHotkeyScore;
+    private DateTime _lastImageHotkeyTriggerUtc = DateTime.MinValue;
     private DateTime _lastLeftClickSoundUtc = DateTime.MinValue;
     private DateTime _lastRightClickSoundUtc = DateTime.MinValue;
     private KeyConfigurationTarget _preparedKeyConfigurationTarget;
@@ -149,6 +165,12 @@ public partial class AOUU : Form
             Interval = 500
         };
         _textTriggerTimer.Tick += TextTriggerTimer_Tick;
+
+        _imageHotkeyScanTimer = new System.Windows.Forms.Timer
+        {
+            Interval = 200
+        };
+        _imageHotkeyScanTimer.Tick += ImageHotkeyScanTimer_Tick;
 
         _audioPathBox = new TextBox
         {
@@ -429,6 +451,100 @@ public partial class AOUU : Form
         };
         _textTriggerCooldownBox.ValueChanged += TextTriggerSettings_Changed;
 
+        _imageHotkeyTriggerEnabledBox = new CheckBox
+        {
+            Left = 24,
+            Top = 424,
+            Width = 160,
+            Text = "战技音效"
+        };
+        _imageHotkeyTriggerEnabledBox.CheckedChanged += ImageHotkeyTriggerSettings_Changed;
+
+        _setImageHotkeyRegionButton = new Button
+        {
+            Left = 196,
+            Top = 420,
+            Width = 130,
+            Text = "设置战技区域"
+        };
+        _setImageHotkeyRegionButton.Click += (_, _) => ConfigureImageHotkeyRegion();
+
+        _imageHotkeyRegionBox = new TextBox
+        {
+            Left = 336,
+            Top = 422,
+            Width = 230,
+            ReadOnly = true,
+            TabStop = false
+        };
+
+        _browseImageHotkeyTemplateButton = new Button
+        {
+            Left = 576,
+            Top = 420,
+            Width = 110,
+            Text = "选择战技"
+        };
+        _browseImageHotkeyTemplateButton.Click += BrowseImageHotkeyTemplateButton_Click;
+
+        _imageHotkeyTemplatePathBox = new TextBox
+        {
+            Left = 696,
+            Top = 422,
+            Width = 188,
+            ReadOnly = true,
+            TabStop = false
+        };
+
+        _imageHotkeySimilarityBox = new NumericUpDown
+        {
+            Left = 96,
+            Top = 464,
+            Width = 70,
+            Minimum = 0.10M,
+            Maximum = 1.00M,
+            Increment = 0.05M,
+            DecimalPlaces = 2
+        };
+        _imageHotkeySimilarityBox.ValueChanged += ImageHotkeyTriggerSettings_Changed;
+
+        _setImageHotkeyButton = new Button
+        {
+            Left = 196,
+            Top = 462,
+            Width = 130
+        };
+        _setImageHotkeyButton.Click += (_, _) => ConfigureHotkey(KeyConfigurationTarget.ImageHotkeyTrigger, "战技触发按键");
+
+        _imageHotkeyAudioPathBox = new TextBox
+        {
+            Left = 336,
+            Top = 464,
+            Width = 230,
+            ReadOnly = true,
+            TabStop = false
+        };
+
+        _browseImageHotkeyAudioButton = new Button
+        {
+            Left = 576,
+            Top = 462,
+            Width = 110,
+            Text = "触发音频"
+        };
+        _browseImageHotkeyAudioButton.Click += BrowseImageHotkeyAudioButton_Click;
+
+        _imageHotkeyCooldownBox = new NumericUpDown
+        {
+            Left = 810,
+            Top = 464,
+            Width = 74,
+            Minimum = 1,
+            Maximum = 3600,
+            Increment = 1
+        };
+        _imageHotkeyCooldownBox.ValueChanged += ImageHotkeyTriggerSettings_Changed;
+
         _setSkillRegionButton = new Button
         {
             Left = 24,
@@ -459,16 +575,16 @@ public partial class AOUU : Form
         _regionsListBox = new ListBox
         {
             Left = 24,
-            Top = 540,
+            Top = 644,
             Width = 860,
-            Height = 190,
+            Height = 170,
             HorizontalScrollbar = true
         };
 
         _statusLabel = new Label
         {
             Left = 24,
-            Top = 870,
+            Top = 890,
             Width = 860,
             Height = 60
         };
@@ -582,10 +698,34 @@ public partial class AOUU : Form
             Text = "冷却秒"
         });
         Controls.Add(_textTriggerCooldownBox);
+        Controls.Add(_imageHotkeyTriggerEnabledBox);
+        Controls.Add(_setImageHotkeyRegionButton);
+        Controls.Add(_imageHotkeyRegionBox);
+        Controls.Add(_browseImageHotkeyTemplateButton);
+        Controls.Add(_imageHotkeyTemplatePathBox);
         Controls.Add(new Label
         {
             Left = 24,
-            Top = 518,
+            Top = 468,
+            Width = 68,
+            Text = "匹配阈值"
+        });
+        Controls.Add(_imageHotkeySimilarityBox);
+        Controls.Add(_setImageHotkeyButton);
+        Controls.Add(_imageHotkeyAudioPathBox);
+        Controls.Add(_browseImageHotkeyAudioButton);
+        Controls.Add(new Label
+        {
+            Left = 746,
+            Top = 468,
+            Width = 58,
+            Text = "冷却秒"
+        });
+        Controls.Add(_imageHotkeyCooldownBox);
+        Controls.Add(new Label
+        {
+            Left = 24,
+            Top = 622,
             Width = 260,
             Text = "当前检测区域"
         });
@@ -593,7 +733,7 @@ public partial class AOUU : Form
         Controls.Add(new Label
         {
             Left = 24,
-            Top = 840,
+            Top = 838,
             Width = 860,
             Text = "点击配置键位后会弹出识别框，只有确认后的结果才会保存，支持键盘、鼠标侧键和手柄按钮，鼠标左键不会被接受。"
         });
@@ -614,6 +754,7 @@ public partial class AOUU : Form
         _regionCaptureMonitorService.Enabled = true;
         SetRegionCaptureHotkeyMonitorsEnabled(true);
         SyncTextTriggerTimer();
+        SyncImageHotkeyScanTimer();
     }
 
     private void BrowseButton_Click(object? sender, EventArgs e)
@@ -794,6 +935,11 @@ public partial class AOUU : Form
             _config.RegionCaptureHotkeys.OcrTextRegionKeyName = keyName;
             _ocrTextRegionCaptureMonitorService.TriggerKey = keyCode;
         }
+        else if (target == KeyConfigurationTarget.ImageHotkeyTrigger)
+        {
+            _config.ImageHotkeyTrigger.Hotkey = keyCode;
+            _config.ImageHotkeyTrigger.HotkeyName = keyName;
+        }
 
         SaveConfig();
         UpdateRegionCaptureHotkeyButtonText();
@@ -809,6 +955,7 @@ public partial class AOUU : Form
             KeyConfigurationTarget.SkillRegionCapture => _config.RegionCaptureHotkeys.SkillRegionKeyName,
             KeyConfigurationTarget.HealthRegionCapture => _config.RegionCaptureHotkeys.HealthRegionKeyName,
             KeyConfigurationTarget.OcrTextRegionCapture => _config.RegionCaptureHotkeys.OcrTextRegionKeyName,
+            KeyConfigurationTarget.ImageHotkeyTrigger => _config.ImageHotkeyTrigger.HotkeyName,
             _ => string.Empty
         };
     }
@@ -817,7 +964,7 @@ public partial class AOUU : Form
     {
         foreach (var (otherTarget, label, configuredKey) in EnumerateConfiguredHotkeys())
         {
-            if (otherTarget == target || configuredKey != keyCode)
+            if (otherTarget == target || !TriggerMonitorService.IsSameHotkey(configuredKey, keyCode))
             {
                 continue;
             }
@@ -837,6 +984,7 @@ public partial class AOUU : Form
         yield return (KeyConfigurationTarget.SkillRegionCapture, "技能区域快捷键", _config.RegionCaptureHotkeys.SkillRegionKey);
         yield return (KeyConfigurationTarget.HealthRegionCapture, "血条区域快捷键", _config.RegionCaptureHotkeys.HealthRegionKey);
         yield return (KeyConfigurationTarget.OcrTextRegionCapture, "OCR文字区域快捷键", _config.RegionCaptureHotkeys.OcrTextRegionKey);
+        yield return (KeyConfigurationTarget.ImageHotkeyTrigger, "战技触发按键", _config.ImageHotkeyTrigger.Hotkey);
     }
 
     private void TimingBox_ValueChanged(object? sender, EventArgs e)
@@ -981,6 +1129,109 @@ public partial class AOUU : Form
         UpdateStatus();
     }
 
+    private void ImageHotkeyTriggerSettings_Changed(object? sender, EventArgs e)
+    {
+        if (_isApplyingConfigToUi)
+        {
+            return;
+        }
+
+        _config.ImageHotkeyTrigger.Enabled = _imageHotkeyTriggerEnabledBox.Checked;
+        _config.ImageHotkeyTrigger.SimilarityThreshold = (double)_imageHotkeySimilarityBox.Value;
+        _config.ImageHotkeyTrigger.CooldownSeconds = (int)_imageHotkeyCooldownBox.Value;
+
+        SaveConfig();
+        UpdateImageHotkeyTriggerDisplay();
+        SyncImageHotkeyScanTimer();
+        UpdateStatus();
+    }
+
+    private void ConfigureImageHotkeyRegion()
+    {
+        if (_isRecognitionRunning || _isRegionCaptureRunning || _isConfiguringKey)
+        {
+            SetStatus("当前正在识别、框选或设置按键，暂时不能修改战技区域。");
+            return;
+        }
+
+        _isRegionCaptureRunning = true;
+        _triggerMonitorService.Enabled = false;
+        _regionCaptureMonitorService.Enabled = false;
+        SetRegionCaptureHotkeyMonitorsEnabled(false);
+        _imageHotkeyScanTimer.Stop();
+        HideForSelection();
+
+        try
+        {
+            var step = new SelectionStep(
+                "框选战技检测区域",
+                "只框住要和战技模板比较的屏幕区域。");
+
+            if (!TrySelectBoundsSession(step, out var selectedBounds))
+            {
+                SetStatus("已取消战技区域框选。");
+                return;
+            }
+
+            _config.ImageHotkeyTrigger.Region = ScreenBounds.FromRectangle(selectedBounds);
+            SaveConfig();
+            UpdateImageHotkeyTriggerDisplay();
+            RefreshRegionList();
+            SetStatus("战技区域已更新。");
+        }
+        catch (Exception ex)
+        {
+            SetStatus($"战技区域框选失败：{ex.Message}");
+        }
+        finally
+        {
+            _isRegionCaptureRunning = false;
+            _triggerMonitorService.Enabled = true;
+            _regionCaptureMonitorService.Enabled = true;
+            SetRegionCaptureHotkeyMonitorsEnabled(true);
+            SyncImageHotkeyScanTimer();
+            RestoreAfterSelection();
+        }
+    }
+
+    private void BrowseImageHotkeyTemplateButton_Click(object? sender, EventArgs e)
+    {
+        using var fileDialog = new OpenFileDialog
+        {
+            Filter = "图片文件|*.png;*.jpg;*.jpeg;*.bmp|所有文件|*.*",
+            FileName = Path.GetFileName(_config.ImageHotkeyTrigger.TemplateImagePath)
+        };
+
+        if (fileDialog.ShowDialog(this) != DialogResult.OK)
+        {
+            return;
+        }
+
+        _config.ImageHotkeyTrigger.TemplateImagePath = fileDialog.FileName;
+        SaveConfig();
+        UpdateImageHotkeyTriggerDisplay();
+        SetStatus("战技模板已更新。");
+    }
+
+    private void BrowseImageHotkeyAudioButton_Click(object? sender, EventArgs e)
+    {
+        using var fileDialog = new OpenFileDialog
+        {
+            Filter = "音频文件|*.mp3;*.wav",
+            FileName = Path.GetFileName(_config.ImageHotkeyTrigger.AudioPath)
+        };
+
+        if (fileDialog.ShowDialog(this) != DialogResult.OK)
+        {
+            return;
+        }
+
+        _config.ImageHotkeyTrigger.AudioPath = fileDialog.FileName;
+        SaveConfig();
+        UpdateImageHotkeyTriggerDisplay();
+        SetStatus("战技音效已更新。");
+    }
+
     private void ConfigureOcrTextRegion()
     {
         if (_isRecognitionRunning || _isRegionCaptureRunning || _isConfiguringKey)
@@ -1111,6 +1362,114 @@ public partial class AOUU : Form
         SetStatus($"检测到 OCR 文字“{trigger.Text}”（{normalizedRecognizedText}），已播放触发音频。");
     }
 
+    private async void ImageHotkeyScanTimer_Tick(object? sender, EventArgs e)
+    {
+        if (_isImageHotkeyScanRunning || _isRegionCaptureRunning || _isConfiguringKey || !_config.ImageHotkeyTrigger.Enabled)
+        {
+            return;
+        }
+
+        var trigger = _config.ImageHotkeyTrigger;
+        if (trigger.Region is null || trigger.Region.Width <= 0 || trigger.Region.Height <= 0)
+        {
+            _imageHotkeyMatched = false;
+            SetStatus("战技音效缺少检测区域。");
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(trigger.TemplateImagePath) || !File.Exists(trigger.TemplateImagePath))
+        {
+            _imageHotkeyMatched = false;
+            SetStatus($"战技模板图片不存在：{trigger.TemplateImagePath}");
+            return;
+        }
+
+        _isImageHotkeyScanRunning = true;
+
+        try
+        {
+            var region = trigger.Region.ToRectangle();
+            var templatePath = trigger.TemplateImagePath;
+            var threshold = Math.Clamp(trigger.SimilarityThreshold, 0.1, 1.0);
+            var match = await Task.Run(() =>
+            {
+                using var frame = _screenCaptureService.Capture(region);
+                return _templateMatcher.FindBestMatch(frame, templatePath);
+            }, _shutdownCts.Token);
+
+            _lastImageHotkeyScore = match.Score;
+            _imageHotkeyMatched = match.IsValid && match.Score >= threshold;
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            _imageHotkeyMatched = false;
+            SetStatus($"战技匹配失败：{ex.Message}");
+        }
+        finally
+        {
+            _isImageHotkeyScanRunning = false;
+        }
+    }
+
+    private void HandleImageHotkeyPressed(int keyCode)
+    {
+        var trigger = _config.ImageHotkeyTrigger;
+        if (!trigger.Enabled || !TriggerMonitorService.IsSameHotkey(trigger.Hotkey, keyCode))
+        {
+            return;
+        }
+
+        if (trigger.Hotkey <= 0 || !TriggerMonitorService.IsSupportedHotkey(trigger.Hotkey))
+        {
+            SetStatus("战技音效未配置有效按键。");
+            return;
+        }
+
+        if (trigger.Region is null || trigger.Region.Width <= 0 || trigger.Region.Height <= 0)
+        {
+            SetStatus("战技音效缺少检测区域。");
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(trigger.TemplateImagePath) || !File.Exists(trigger.TemplateImagePath))
+        {
+            SetStatus($"战技模板图片不存在：{trigger.TemplateImagePath}");
+            return;
+        }
+
+        if (!_imageHotkeyMatched)
+        {
+            SetStatus($"战技触发按键已按下，但战技未匹配。当前战技匹配度：{_lastImageHotkeyScore:0.###}");
+            return;
+        }
+
+        var now = DateTime.UtcNow;
+        var cooldown = TimeSpan.FromSeconds(Math.Clamp(trigger.CooldownSeconds, 1, 3600));
+        if (now - _lastImageHotkeyTriggerUtc < cooldown)
+        {
+            SetStatus($"战技音效冷却中。当前战技匹配度：{_lastImageHotkeyScore:0.###}");
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(trigger.AudioPath) || !File.Exists(trigger.AudioPath))
+        {
+            SetStatus($"战技音效文件不存在：{trigger.AudioPath}");
+            return;
+        }
+
+        if (!PlayAudioPath(trigger.AudioPath, out var playbackMessage))
+        {
+            SetStatus(playbackMessage);
+            return;
+        }
+
+        _lastImageHotkeyTriggerUtc = now;
+        SetStatus($"战技匹配且按键命中，已播放战技音效。战技匹配度：{_lastImageHotkeyScore:0.###}");
+    }
+
     private async void TriggerMonitorService_Triggered(object? sender, EventArgs e)
     {
         if (_isConfiguringKey || _isRecognitionRunning || _isRegionCaptureRunning)
@@ -1219,6 +1578,8 @@ public partial class AOUU : Form
         {
             TryPlayClickSound(_config.RightClickAudioPath, isLeftButton: false);
         }
+
+        HandleImageHotkeyPressed(keyCode);
     }
 
     private void RemoveRegionButton_Click(object? sender, EventArgs e)
@@ -1986,7 +2347,12 @@ public partial class AOUU : Form
             _textTriggerScanIntervalBox.Value = Math.Clamp(textTrigger.ScanIntervalMs, (int)_textTriggerScanIntervalBox.Minimum, (int)_textTriggerScanIntervalBox.Maximum);
             _textTriggerCooldownBox.Value = Math.Clamp(textTrigger.CooldownSeconds, (int)_textTriggerCooldownBox.Minimum, (int)_textTriggerCooldownBox.Maximum);
             UpdateTextTriggerDisplay();
+            _imageHotkeyTriggerEnabledBox.Checked = _config.ImageHotkeyTrigger.Enabled;
+            _imageHotkeySimilarityBox.Value = Math.Clamp((decimal)_config.ImageHotkeyTrigger.SimilarityThreshold, _imageHotkeySimilarityBox.Minimum, _imageHotkeySimilarityBox.Maximum);
+            _imageHotkeyCooldownBox.Value = Math.Clamp(_config.ImageHotkeyTrigger.CooldownSeconds, (int)_imageHotkeyCooldownBox.Minimum, (int)_imageHotkeyCooldownBox.Maximum);
+            UpdateImageHotkeyTriggerDisplay();
             SyncTextTriggerTimer();
+            SyncImageHotkeyScanTimer();
             UpdateRegionCaptureHotkeyButtonText();
             UpdateThresholdDisplay();
             UpdateVolumeDisplay();
@@ -2019,6 +2385,11 @@ public partial class AOUU : Form
             _regionsListBox.Items.Add($"OCR文字触发区域 | {textTrigger.Text} | {textTrigger.Region}");
         }
 
+        if (_config.ImageHotkeyTrigger.Region is not null)
+        {
+            _regionsListBox.Items.Add($"战技区域 | {_config.ImageHotkeyTrigger.Region}");
+        }
+
         _regionsListBox.EndUpdate();
     }
 
@@ -2043,6 +2414,9 @@ public partial class AOUU : Form
             : _textTriggerTextBox.Text.Trim();
         textTrigger.ScanIntervalMs = (int)_textTriggerScanIntervalBox.Value;
         textTrigger.CooldownSeconds = (int)_textTriggerCooldownBox.Value;
+        _config.ImageHotkeyTrigger.Enabled = _imageHotkeyTriggerEnabledBox.Checked;
+        _config.ImageHotkeyTrigger.SimilarityThreshold = (double)_imageHotkeySimilarityBox.Value;
+        _config.ImageHotkeyTrigger.CooldownSeconds = (int)_imageHotkeyCooldownBox.Value;
         _configService.Save(_config);
     }
 
@@ -2051,6 +2425,7 @@ public partial class AOUU : Form
         _setSkillRegionCaptureKeyButton.Text = $"设置技能区域快捷键：{_config.RegionCaptureHotkeys.SkillRegionKeyName}";
         _setHealthRegionCaptureKeyButton.Text = $"设置血条区域快捷键：{_config.RegionCaptureHotkeys.HealthRegionKeyName}";
         _setOcrTextRegionCaptureKeyButton.Text = $"设置OCR文字区域快捷键：{_config.RegionCaptureHotkeys.OcrTextRegionKeyName}";
+        _setImageHotkeyButton.Text = $"战技按键：{_config.ImageHotkeyTrigger.HotkeyName}";
     }
 
     private void UpdateAudioDisplay()
@@ -2083,6 +2458,21 @@ public partial class AOUU : Form
             : $"{regionText} / {Path.GetFileName(trigger.MusicPath)}";
     }
 
+    private void UpdateImageHotkeyTriggerDisplay()
+    {
+        var trigger = _config.ImageHotkeyTrigger;
+        _imageHotkeyRegionBox.Text = trigger.Region is null
+            ? "未设置战技区域"
+            : trigger.Region.ToString();
+        _imageHotkeyTemplatePathBox.Text = string.IsNullOrWhiteSpace(trigger.TemplateImagePath)
+            ? "未选择战技模板"
+            : Path.GetFileName(trigger.TemplateImagePath);
+        _imageHotkeyAudioPathBox.Text = string.IsNullOrWhiteSpace(trigger.AudioPath)
+            ? "未选择战技音效"
+            : Path.GetFileName(trigger.AudioPath);
+        UpdateRegionCaptureHotkeyButtonText();
+    }
+
     private void SyncTextTriggerTimer()
     {
         var trigger = EnsureDefaultTextTrigger();
@@ -2095,6 +2485,20 @@ public partial class AOUU : Form
         else
         {
             _textTriggerTimer.Stop();
+        }
+    }
+
+    private void SyncImageHotkeyScanTimer()
+    {
+        if (_config.ImageHotkeyTrigger.Enabled && !_isRegionCaptureRunning)
+        {
+            _imageHotkeyScanTimer.Start();
+        }
+        else
+        {
+            _imageHotkeyScanTimer.Stop();
+            _imageHotkeyMatched = false;
+            _lastImageHotkeyScore = 0;
         }
     }
 
@@ -2139,9 +2543,10 @@ public partial class AOUU : Form
             outputDevice = $"Soundpad 第 {_config.SoundpadSoundIndex} 个声音";
         }
         var enabledTextTriggerCount = _config.TextTriggers.Count(trigger => trigger.Enabled);
+        var imageHotkeyTriggerState = _config.ImageHotkeyTrigger.Enabled ? "开" : "关";
         var regionCount = _config.Regions.Count;
         _statusLabel.Text =
-            $"{audioState}。输出：{outputDevice}。OCR文字触发：{enabledTextTriggerCount}。技能触发键：{_config.TriggerKeyName}。截图键：{_config.RegionCaptureKeyName}。检测区域数量：{regionCount}。";
+            $"{audioState}。输出：{outputDevice}。OCR文字触发：{enabledTextTriggerCount}。战技音效：{imageHotkeyTriggerState}。技能触发键：{_config.TriggerKeyName}。截图键：{_config.RegionCaptureKeyName}。检测区域数量：{regionCount}。";
     }
 
     private void UpdateThresholdDisplay()
@@ -2201,6 +2606,9 @@ public partial class AOUU : Form
         _textTriggerTimer.Stop();
         _textTriggerTimer.Tick -= TextTriggerTimer_Tick;
         _textTriggerTimer.Dispose();
+        _imageHotkeyScanTimer.Stop();
+        _imageHotkeyScanTimer.Tick -= ImageHotkeyScanTimer_Tick;
+        _imageHotkeyScanTimer.Dispose();
         _inputCaptureService.InputPressed -= InputCaptureService_InputPressed;
         _inputCaptureService.Dispose();
         _healthBaselineService.Dispose();

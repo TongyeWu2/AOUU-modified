@@ -153,6 +153,12 @@ public sealed class TriggerMonitorService : IDisposable
             0x26 => "方向键上",
             0x27 => "方向键右",
             0x28 => "方向键下",
+            0xA0 => "Left Shift",
+            0xA1 => "Right Shift",
+            0xA2 => "Left Ctrl",
+            0xA3 => "Right Ctrl",
+            0xA4 => "Left Alt",
+            0xA5 => "Right Alt",
             >= 0x70 and <= 0x7B => $"F{keyCode - 0x6F}",
             >= 0x30 and <= 0x39 => ((char)keyCode).ToString(),
             >= 0x41 and <= 0x5A => ((char)keyCode).ToString(),
@@ -173,6 +179,22 @@ public sealed class TriggerMonitorService : IDisposable
         }
 
         return !GetKeyName(keyCode).StartsWith("未知按键 ", StringComparison.Ordinal);
+    }
+
+    public static bool IsSameHotkey(int configuredKeyCode, int pressedKeyCode)
+    {
+        if (configuredKeyCode == pressedKeyCode)
+        {
+            return true;
+        }
+
+        return configuredKeyCode switch
+        {
+            0x10 => pressedKeyCode is 0xA0 or 0xA1,
+            0x11 => pressedKeyCode is 0xA2 or 0xA3,
+            0x12 => pressedKeyCode is 0xA4 or 0xA5,
+            _ => false
+        };
     }
 
     private void Timer_Tick(object? sender, EventArgs e)
@@ -210,6 +232,27 @@ public sealed class TriggerMonitorService : IDisposable
             }
 
             return false;
+        }
+
+        if (keyCode == 0x10)
+        {
+            return (GetAsyncKeyState(0x10) & 0x8000) != 0 ||
+                   (GetAsyncKeyState(0xA0) & 0x8000) != 0 ||
+                   (GetAsyncKeyState(0xA1) & 0x8000) != 0;
+        }
+
+        if (keyCode == 0x11)
+        {
+            return (GetAsyncKeyState(0x11) & 0x8000) != 0 ||
+                   (GetAsyncKeyState(0xA2) & 0x8000) != 0 ||
+                   (GetAsyncKeyState(0xA3) & 0x8000) != 0;
+        }
+
+        if (keyCode == 0x12)
+        {
+            return (GetAsyncKeyState(0x12) & 0x8000) != 0 ||
+                   (GetAsyncKeyState(0xA4) & 0x8000) != 0 ||
+                   (GetAsyncKeyState(0xA5) & 0x8000) != 0;
         }
 
         return (GetAsyncKeyState(keyCode) & 0x8000) != 0;

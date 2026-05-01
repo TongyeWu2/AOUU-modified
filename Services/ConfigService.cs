@@ -142,6 +142,14 @@ public sealed class ConfigService
                     CooldownSeconds = 5
                 }
             ],
+            ImageHotkeyTrigger = new ImageHotkeyTriggerConfig
+            {
+                Enabled = false,
+                SimilarityThreshold = 0.85,
+                Hotkey = 0x7A,
+                HotkeyName = "F11",
+                CooldownSeconds = 5
+            }
         };
     }
 
@@ -257,6 +265,11 @@ public sealed class ConfigService
             MigrateDeathTrigger(config, dto.DeathTrigger);
         }
 
+        if (dto.ImageHotkeyTrigger is not null)
+        {
+            config.ImageHotkeyTrigger = MapImageHotkeyTriggerFromDto(dto.ImageHotkeyTrigger);
+        }
+
         if (dto.RegionCaptureHotkeys is not null)
         {
             config.RegionCaptureHotkeys = MapRegionCaptureHotkeysFromDto(dto.RegionCaptureHotkeys);
@@ -369,6 +382,7 @@ public sealed class ConfigService
                 ScanIntervalMs = trigger.ScanIntervalMs,
                 CooldownSeconds = trigger.CooldownSeconds
             }).ToList(),
+            ImageHotkeyTrigger = MapImageHotkeyTriggerToDto(config.ImageHotkeyTrigger),
             RegionCaptureHotkeys = MapRegionCaptureHotkeysToDto(config.RegionCaptureHotkeys),
             Regions = config.Regions.Select(region =>
             {
@@ -426,6 +440,37 @@ public sealed class ConfigService
             HealthRegionKeyName = config.HealthRegionKeyName,
             OcrTextRegionKey = config.OcrTextRegionKey,
             OcrTextRegionKeyName = config.OcrTextRegionKeyName
+        };
+    }
+
+    private static ImageHotkeyTriggerConfig MapImageHotkeyTriggerFromDto(ImageHotkeyTriggerDto dto)
+    {
+        var hotkey = TriggerMonitorService.IsSupportedHotkey(dto.Hotkey) ? dto.Hotkey : 0x7A;
+        return new ImageHotkeyTriggerConfig
+        {
+            Enabled = dto.Enabled,
+            Region = IsValidBounds(dto.Region) ? dto.Region : null,
+            TemplateImagePath = dto.TemplateImagePath ?? string.Empty,
+            SimilarityThreshold = Math.Clamp(dto.SimilarityThreshold <= 0 ? 0.85 : dto.SimilarityThreshold, 0.1, 1.0),
+            Hotkey = hotkey,
+            HotkeyName = TriggerMonitorService.GetKeyName(hotkey),
+            AudioPath = dto.AudioPath ?? string.Empty,
+            CooldownSeconds = Math.Clamp(dto.CooldownSeconds <= 0 ? 5 : dto.CooldownSeconds, 1, 3600)
+        };
+    }
+
+    private static ImageHotkeyTriggerDto MapImageHotkeyTriggerToDto(ImageHotkeyTriggerConfig config)
+    {
+        return new ImageHotkeyTriggerDto
+        {
+            Enabled = config.Enabled,
+            Region = config.Region,
+            TemplateImagePath = config.TemplateImagePath,
+            SimilarityThreshold = config.SimilarityThreshold,
+            Hotkey = config.Hotkey,
+            HotkeyName = config.HotkeyName,
+            AudioPath = config.AudioPath,
+            CooldownSeconds = config.CooldownSeconds
         };
     }
 
@@ -501,6 +546,8 @@ public sealed class ConfigService
 
         public List<TextTriggerDto>? TextTriggers { get; set; }
 
+        public ImageHotkeyTriggerDto? ImageHotkeyTrigger { get; set; }
+
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public DeathTriggerDto? DeathTrigger { get; set; }
 
@@ -557,6 +604,25 @@ public sealed class ConfigService
         public string? MusicPath { get; set; }
 
         public int ScanIntervalMs { get; set; } = 500;
+
+        public int CooldownSeconds { get; set; } = 5;
+    }
+
+    private sealed class ImageHotkeyTriggerDto
+    {
+        public bool Enabled { get; set; }
+
+        public ScreenBounds? Region { get; set; }
+
+        public string? TemplateImagePath { get; set; }
+
+        public double SimilarityThreshold { get; set; } = 0.85;
+
+        public int Hotkey { get; set; } = 0x7A;
+
+        public string? HotkeyName { get; set; }
+
+        public string? AudioPath { get; set; }
 
         public int CooldownSeconds { get; set; } = 5;
     }

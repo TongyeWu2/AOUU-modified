@@ -42,6 +42,8 @@ public sealed class AppConfig
 
     public List<TextTriggerConfig> TextTriggers { get; set; } = [];
 
+    public ImageHotkeyTriggerConfig ImageHotkeyTrigger { get; set; } = new();
+
     public RegionCaptureHotkeysConfig RegionCaptureHotkeys { get; set; } = new();
 }
 
@@ -71,6 +73,25 @@ public sealed class TextTriggerConfig
     public string MusicPath { get; set; } = string.Empty;
 
     public int ScanIntervalMs { get; set; } = 500;
+
+    public int CooldownSeconds { get; set; } = 5;
+}
+
+public sealed class ImageHotkeyTriggerConfig
+{
+    public bool Enabled { get; set; }
+
+    public ScreenBounds? Region { get; set; }
+
+    public string TemplateImagePath { get; set; } = string.Empty;
+
+    public double SimilarityThreshold { get; set; } = 0.85;
+
+    public int Hotkey { get; set; } = 0x7A;
+
+    public string HotkeyName { get; set; } = "F11";
+
+    public string AudioPath { get; set; } = string.Empty;
 
     public int CooldownSeconds { get; set; } = 5;
 }
