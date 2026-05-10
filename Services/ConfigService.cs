@@ -142,6 +142,14 @@ public sealed class ConfigService
                     CooldownSeconds = 5
                 }
             ],
+            UltHotkeyTrigger = new ImageHotkeyTriggerConfig
+            {
+                Enabled = false,
+                SimilarityThreshold = 0.85,
+                Hotkey = 0x77,
+                HotkeyName = "F8",
+                CooldownSeconds = 5
+            },
             ImageHotkeyTrigger = new ImageHotkeyTriggerConfig
             {
                 Enabled = false,
@@ -201,13 +209,8 @@ public sealed class ConfigService
     {
         var config = CreateDefault();
         config.AudioPath = dto.AudioPath ?? config.AudioPath;
-        config.LeftClickAudioPath = dto.LeftClickAudioPath ?? string.Empty;
-        config.RightClickAudioPath = dto.RightClickAudioPath ?? string.Empty;
         config.AudioVolume = Math.Clamp(dto.AudioVolume, 0.0f, 1.0f);
         config.AudioOutputDeviceName = dto.AudioOutputDeviceName ?? string.Empty;
-        config.UseSoundpadOutput = dto.UseSoundpadOutput;
-        config.SoundpadExecutablePath = dto.SoundpadExecutablePath ?? string.Empty;
-        config.SoundpadSoundIndex = Math.Clamp(dto.SoundpadSoundIndex <= 0 ? 1 : dto.SoundpadSoundIndex, 1, 9999);
         config.TriggerKey = TriggerMonitorService.IsSupportedHotkey(dto.TriggerKey) ? dto.TriggerKey : 0x77;
         config.TriggerKeyName = TriggerMonitorService.GetKeyName(config.TriggerKey);
         config.RegionCaptureKey = TriggerMonitorService.IsSupportedHotkey(dto.RegionCaptureKey) ? dto.RegionCaptureKey : 0x79;
@@ -267,7 +270,14 @@ public sealed class ConfigService
 
         if (dto.ImageHotkeyTrigger is not null)
         {
-            config.ImageHotkeyTrigger = MapImageHotkeyTriggerFromDto(dto.ImageHotkeyTrigger);
+            config.ImageHotkeyTrigger = MapImageHotkeyTriggerFromDto(dto.ImageHotkeyTrigger, "战技");
+        }
+
+        if (dto.UltHotkeyTrigger is not null)
+        {
+            config.UltHotkeyTrigger = MapImageHotkeyTriggerFromDto(dto.UltHotkeyTrigger, "大招");
+            config.TriggerKey = config.UltHotkeyTrigger.Hotkey;
+            config.TriggerKeyName = config.UltHotkeyTrigger.HotkeyName;
         }
 
         if (dto.RegionCaptureHotkeys is not null)
@@ -336,7 +346,7 @@ public sealed class ConfigService
                     healthTemplatePath = DefaultHealthTemplatePath;
                 }
 
-                config.Regions.Add(new HealthChangeWatchRegion
+            config.Regions.Add(new HealthChangeWatchRegion
                 {
                     Name = name,
                     Bounds = regionDto.Bounds,
@@ -349,6 +359,11 @@ public sealed class ConfigService
             }
         }
 
+        if (dto.UltHotkeyTrigger is null)
+        {
+            MigrateLegacyUltTrigger(config);
+        }
+
         return config;
     }
 
@@ -357,13 +372,8 @@ public sealed class ConfigService
         return new AppConfigDto
         {
             AudioPath = config.AudioPath,
-            LeftClickAudioPath = config.LeftClickAudioPath,
-            RightClickAudioPath = config.RightClickAudioPath,
             AudioVolume = config.AudioVolume,
             AudioOutputDeviceName = config.AudioOutputDeviceName,
-            UseSoundpadOutput = config.UseSoundpadOutput,
-            SoundpadExecutablePath = config.SoundpadExecutablePath,
-            SoundpadSoundIndex = config.SoundpadSoundIndex,
             TriggerKey = config.TriggerKey,
             TriggerKeyName = config.TriggerKeyName,
             RegionCaptureKey = config.RegionCaptureKey,
@@ -382,6 +392,7 @@ public sealed class ConfigService
                 ScanIntervalMs = trigger.ScanIntervalMs,
                 CooldownSeconds = trigger.CooldownSeconds
             }).ToList(),
+            UltHotkeyTrigger = MapImageHotkeyTriggerToDto(config.UltHotkeyTrigger),
             ImageHotkeyTrigger = MapImageHotkeyTriggerToDto(config.ImageHotkeyTrigger),
             RegionCaptureHotkeys = MapRegionCaptureHotkeysToDto(config.RegionCaptureHotkeys),
             Regions = config.Regions.Select(region =>
@@ -443,35 +454,123 @@ public sealed class ConfigService
         };
     }
 
-    private static ImageHotkeyTriggerConfig MapImageHotkeyTriggerFromDto(ImageHotkeyTriggerDto dto)
+    private static ImageHotkeyTriggerConfig MapImageHotkeyTriggerFromDto(ImageHotkeyTriggerDto dto, string defaultEntryNamePrefix)
     {
         var hotkey = TriggerMonitorService.IsSupportedHotkey(dto.Hotkey) ? dto.Hotkey : 0x7A;
-        return new ImageHotkeyTriggerConfig
+        var config = new ImageHotkeyTriggerConfig
         {
             Enabled = dto.Enabled,
             Region = IsValidBounds(dto.Region) ? dto.Region : null,
             TemplateImagePath = dto.TemplateImagePath ?? string.Empty,
             SimilarityThreshold = Math.Clamp(dto.SimilarityThreshold <= 0 ? 0.85 : dto.SimilarityThreshold, 0.1, 1.0),
+            SelectedSkillIndex = Math.Max(0, dto.SelectedSkillIndex),
             Hotkey = hotkey,
             HotkeyName = TriggerMonitorService.GetKeyName(hotkey),
             AudioPath = dto.AudioPath ?? string.Empty,
+            ScanIntervalMs = Math.Clamp(dto.ScanIntervalMs <= 0 ? 200 : dto.ScanIntervalMs, 100, 10000),
             CooldownSeconds = Math.Clamp(dto.CooldownSeconds <= 0 ? 5 : dto.CooldownSeconds, 1, 3600)
         };
+
+        if (dto.Skills is not null)
+        {
+            foreach (var skillDto in dto.Skills)
+            {
+                var skill = MapImageHotkeySkillFromDto(skillDto, config.Skills.Count + 1, defaultEntryNamePrefix);
+                if (!string.IsNullOrWhiteSpace(skill.Name) ||
+                    !string.IsNullOrWhiteSpace(skill.TemplateImagePath) ||
+                    !string.IsNullOrWhiteSpace(skill.AudioPath))
+                {
+                    config.Skills.Add(skill);
+                }
+            }
+        }
+
+        if (config.Skills.Count == 0 &&
+            (!string.IsNullOrWhiteSpace(config.TemplateImagePath) || !string.IsNullOrWhiteSpace(config.AudioPath)))
+        {
+            config.Skills.Add(new ImageHotkeySkillConfig
+            {
+                Name = $"{defaultEntryNamePrefix} 1",
+                TemplateImagePath = config.TemplateImagePath,
+                AudioPath = config.AudioPath,
+                SimilarityThreshold = config.SimilarityThreshold
+            });
+        }
+
+        config.SelectedSkillIndex = config.Skills.Count == 0
+            ? 0
+            : Math.Clamp(config.SelectedSkillIndex, 0, config.Skills.Count - 1);
+
+        return config;
     }
 
     private static ImageHotkeyTriggerDto MapImageHotkeyTriggerToDto(ImageHotkeyTriggerConfig config)
     {
+        var firstSkill = config.Skills.FirstOrDefault();
         return new ImageHotkeyTriggerDto
         {
             Enabled = config.Enabled,
             Region = config.Region,
-            TemplateImagePath = config.TemplateImagePath,
-            SimilarityThreshold = config.SimilarityThreshold,
+            Skills = config.Skills.Select(MapImageHotkeySkillToDto).ToList(),
+            SelectedSkillIndex = config.Skills.Count == 0 ? 0 : Math.Clamp(config.SelectedSkillIndex, 0, config.Skills.Count - 1),
+            TemplateImagePath = firstSkill?.TemplateImagePath ?? config.TemplateImagePath,
+            SimilarityThreshold = firstSkill?.SimilarityThreshold ?? config.SimilarityThreshold,
             Hotkey = config.Hotkey,
             HotkeyName = config.HotkeyName,
-            AudioPath = config.AudioPath,
+            AudioPath = firstSkill?.AudioPath ?? config.AudioPath,
+            ScanIntervalMs = config.ScanIntervalMs,
             CooldownSeconds = config.CooldownSeconds
         };
+    }
+
+    private static ImageHotkeySkillConfig MapImageHotkeySkillFromDto(ImageHotkeySkillDto dto, int index, string defaultEntryNamePrefix)
+    {
+        return new ImageHotkeySkillConfig
+        {
+            Name = string.IsNullOrWhiteSpace(dto.Name) ? $"{defaultEntryNamePrefix} {index}" : dto.Name.Trim(),
+            TemplateImagePath = dto.TemplateImagePath ?? string.Empty,
+            AudioPath = dto.AudioPath ?? string.Empty,
+            SimilarityThreshold = Math.Clamp(dto.SimilarityThreshold <= 0 ? 0.85 : dto.SimilarityThreshold, 0.1, 1.0)
+        };
+    }
+
+    private static ImageHotkeySkillDto MapImageHotkeySkillToDto(ImageHotkeySkillConfig skill)
+    {
+        return new ImageHotkeySkillDto
+        {
+            Name = skill.Name,
+            TemplateImagePath = skill.TemplateImagePath,
+            AudioPath = skill.AudioPath,
+            SimilarityThreshold = skill.SimilarityThreshold
+        };
+    }
+
+    private static void MigrateLegacyUltTrigger(AppConfig config)
+    {
+        var skillRegion = config.Regions.OfType<SkillReadyWatchRegion>().FirstOrDefault();
+        if (skillRegion is null &&
+            string.IsNullOrWhiteSpace(config.AudioPath))
+        {
+            return;
+        }
+
+        config.UltHotkeyTrigger.Enabled = false;
+        config.UltHotkeyTrigger.Region = skillRegion?.Bounds;
+        config.UltHotkeyTrigger.Hotkey = config.TriggerKey;
+        config.UltHotkeyTrigger.HotkeyName = config.TriggerKeyName;
+        config.UltHotkeyTrigger.CooldownSeconds = 5;
+        config.UltHotkeyTrigger.SelectedSkillIndex = 0;
+
+        if (config.UltHotkeyTrigger.Skills.Count == 0)
+        {
+            config.UltHotkeyTrigger.Skills.Add(new ImageHotkeySkillConfig
+            {
+                Name = "大招 1",
+                TemplateImagePath = skillRegion?.ReadyTemplateImagePath ?? string.Empty,
+                AudioPath = config.AudioPath,
+                SimilarityThreshold = skillRegion?.ReadySimilarityThreshold ?? 0.85
+            });
+        }
     }
 
     private static void MigrateDeathTrigger(AppConfig config, DeathTriggerDto dto)
@@ -512,19 +611,9 @@ public sealed class ConfigService
     {
         public string? AudioPath { get; set; }
 
-        public string? LeftClickAudioPath { get; set; }
-
-        public string? RightClickAudioPath { get; set; }
-
         public float AudioVolume { get; set; } = 1.0f;
 
         public string? AudioOutputDeviceName { get; set; }
-
-        public bool UseSoundpadOutput { get; set; }
-
-        public string? SoundpadExecutablePath { get; set; }
-
-        public int SoundpadSoundIndex { get; set; } = 1;
 
         public int TriggerKey { get; set; }
 
@@ -545,6 +634,8 @@ public sealed class ConfigService
         public int HealthConsecutiveFramesRequired { get; set; } = 2;
 
         public List<TextTriggerDto>? TextTriggers { get; set; }
+
+        public ImageHotkeyTriggerDto? UltHotkeyTrigger { get; set; }
 
         public ImageHotkeyTriggerDto? ImageHotkeyTrigger { get; set; }
 
@@ -614,6 +705,11 @@ public sealed class ConfigService
 
         public ScreenBounds? Region { get; set; }
 
+        public List<ImageHotkeySkillDto>? Skills { get; set; }
+
+        public int SelectedSkillIndex { get; set; }
+
+        // Legacy single-skill fields are kept only for backward compatibility.
         public string? TemplateImagePath { get; set; }
 
         public double SimilarityThreshold { get; set; } = 0.85;
@@ -624,7 +720,20 @@ public sealed class ConfigService
 
         public string? AudioPath { get; set; }
 
+        public int ScanIntervalMs { get; set; } = 200;
+
         public int CooldownSeconds { get; set; } = 5;
+    }
+
+    private sealed class ImageHotkeySkillDto
+    {
+        public string? Name { get; set; }
+
+        public string? TemplateImagePath { get; set; }
+
+        public string? AudioPath { get; set; }
+
+        public double SimilarityThreshold { get; set; } = 0.85;
     }
 
     private sealed class WatchRegionDto

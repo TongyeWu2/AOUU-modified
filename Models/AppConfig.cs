@@ -6,19 +6,9 @@ public sealed class AppConfig
 {
     public string AudioPath { get; set; } = string.Empty;
 
-    public string LeftClickAudioPath { get; set; } = string.Empty;
-
-    public string RightClickAudioPath { get; set; } = string.Empty;
-
     public float AudioVolume { get; set; } = 1.0f;
 
     public string AudioOutputDeviceName { get; set; } = string.Empty;
-
-    public bool UseSoundpadOutput { get; set; }
-
-    public string SoundpadExecutablePath { get; set; } = string.Empty;
-
-    public int SoundpadSoundIndex { get; set; } = 1;
 
     public int TriggerKey { get; set; } = 0x77;
 
@@ -41,6 +31,8 @@ public sealed class AppConfig
     public List<WatchRegion> Regions { get; set; } = [];
 
     public List<TextTriggerConfig> TextTriggers { get; set; } = [];
+
+    public ImageHotkeyTriggerConfig UltHotkeyTrigger { get; set; } = new();
 
     public ImageHotkeyTriggerConfig ImageHotkeyTrigger { get; set; } = new();
 
@@ -83,6 +75,11 @@ public sealed class ImageHotkeyTriggerConfig
 
     public ScreenBounds? Region { get; set; }
 
+    public List<ImageHotkeySkillConfig> Skills { get; set; } = [];
+
+    public int SelectedSkillIndex { get; set; }
+
+    // Legacy single-skill fields are kept so old config files can migrate safely.
     public string TemplateImagePath { get; set; } = string.Empty;
 
     public double SimilarityThreshold { get; set; } = 0.85;
@@ -93,5 +90,18 @@ public sealed class ImageHotkeyTriggerConfig
 
     public string AudioPath { get; set; } = string.Empty;
 
+    public int ScanIntervalMs { get; set; } = 200;
+
     public int CooldownSeconds { get; set; } = 5;
+}
+
+public sealed class ImageHotkeySkillConfig
+{
+    public string Name { get; set; } = string.Empty;
+
+    public string TemplateImagePath { get; set; } = string.Empty;
+
+    public string AudioPath { get; set; } = string.Empty;
+
+    public double SimilarityThreshold { get; set; } = 0.85;
 }
