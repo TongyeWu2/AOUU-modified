@@ -1,0 +1,274 @@
+﻿{
+    "AudioPath":  "assets/audio/animals.mp3",
+    "AudioVolume":  0.69,
+    "AudioOutputDeviceName":  "",
+    "TriggerKey":  82,
+    "TriggerKeyName":  "R",
+    "TriggerInput":  {
+                         "Kind":  0,
+                         "KeyCode":  82,
+                         "Modifiers":  0,
+                         "DisplayName":  "R"
+                     },
+    "RegionCaptureKey":  121,
+    "RegionCaptureKeyName":  "F10",
+    "RegionCaptureInput":  {
+                               "Kind":  0,
+                               "KeyCode":  121,
+                               "Modifiers":  0,
+                               "DisplayName":  "F10"
+                           },
+    "HealthBaselineRefreshSeconds":  30,
+    "WatchWindowMs":  1000,
+    "PollIntervalMs":  5,
+    "HealthGrowthPixelThreshold":  1,
+    "HealthConsecutiveFramesRequired":  2,
+    "TextTriggers":  [
+                         {
+                             "Enabled":  true,
+                             "Region":  {
+                                            "X":  1015,
+                                            "Y":  668,
+                                            "Width":  529,
+                                            "Height":  90
+                                        },
+                             "Text":  "YOU DIED",
+                             "MusicPath":  "assets/audio/死是凉爽的夏夜.mp3",
+                             "ScanIntervalMs":  100,
+                             "CooldownSeconds":  1
+                         }
+                     ],
+    "UltHotkeyTrigger":  {
+                             "Enabled":  true,
+                             "Region":  {
+                                            "X":  1046,
+                                            "Y":  1251,
+                                            "Width":  331,
+                                            "Height":  166
+                                        },
+                             "Skills":  [
+                                            {
+                                                "Name":  "大狗",
+                                                "TemplateImagePath":  "templates/defaults/skill_ready.png",
+                                                "AudioPath":  "assets/audio/animals.mp3",
+                                                "SimilarityThreshold":  0.36
+                                            },
+                                            {
+                                                "Name":  "追",
+                                                "TemplateImagePath":  "assets/SkillPic/Zhui.png",
+                                                "AudioPath":  "assets/audio/袭击桩桩RVC.mp3",
+                                                "SimilarityThreshold":  0.35
+                                            },
+                                            {
+                                                "Name":  "铁眼",
+                                                "TemplateImagePath":  "assets/SkillPic/tie.png",
+                                                "AudioPath":  "assets/audio/╔±├╪╥⌠╨º┐Γ/84.lbw─π║├.mp3",
+                                                "SimilarityThreshold":  0.2
+                                            },
+                                            {
+                                                "Name":  "鸟人",
+                                                "TemplateImagePath":  "assets/SkillPic/niao.png",
+                                                "AudioPath":  "assets/audio/╔±├╪╥⌠╨º┐Γ/70.╣½╝ª┤≥├∙.mp3",
+                                                "SimilarityThreshold":  0.3
+                                            },
+                                            {
+                                                "Name":  "小蜗",
+                                                "TemplateImagePath":  "assets/SkillPic/wo.png",
+                                                "AudioPath":  "assets/audio/并非.mp3",
+                                                "SimilarityThreshold":  0.2
+                                            },
+                                            {
+                                                "Name":  "老头",
+                                                "TemplateImagePath":  "assets/SkillPic/lao.png",
+                                                "AudioPath":  "",
+                                                "SimilarityThreshold":  0.85
+                                            },
+                                            {
+                                                "Name":  "修女",
+                                                "TemplateImagePath":  "assets/SkillPic/xiu.png",
+                                                "AudioPath":  "",
+                                                "SimilarityThreshold":  0.85
+                                            },
+                                            {
+                                                "Name":  "无赖",
+                                                "TemplateImagePath":  "assets/SkillPic/lai.png",
+                                                "AudioPath":  "",
+                                                "SimilarityThreshold":  0.85
+                                            },
+                                            {
+                                                "Name":  "隐士",
+                                                "TemplateImagePath":  "assets/SkillPic/ying.png",
+                                                "AudioPath":  "assets/audio/╔±├╪╥⌠╨º┐Γ/7.╛»▒¿.mp3",
+                                                "SimilarityThreshold":  0.85
+                                            },
+                                            {
+                                                "Name":  "女爵",
+                                                "TemplateImagePath":  "assets/SkillPic/jue.png",
+                                                "AudioPath":  "assets/audio/Faded.mp3",
+                                                "SimilarityThreshold":  0.15
+                                            }
+                                        ],
+                             "SelectedSkillIndex":  0,
+                             "TemplateImagePath":  "templates/defaults/skill_ready.png",
+                             "SimilarityThreshold":  0.36,
+                             "Hotkey":  82,
+                             "HotkeyName":  "R",
+                             "HotkeyInput":  {
+                                                 "Kind":  0,
+                                                 "KeyCode":  82,
+                                                 "Modifiers":  0,
+                                                 "DisplayName":  "R"
+                                             },
+                             "AudioPath":  "assets/audio/animals.mp3",
+                             "ScanIntervalMs":  200,
+                             "CooldownSeconds":  15
+                         },
+    "ImageHotkeyTrigger":  {
+                               "Enabled":  true,
+                               "Region":  {
+                                              "X":  353,
+                                              "Y":  1213,
+                                              "Width":  127,
+                                              "Height":  153
+                                          },
+                               "Skills":  [
+                                              {
+                                                  "Name":  "罗泽司斧",
+                                                  "TemplateImagePath":  "assets/DUDUDA.png",
+                                                  "AudioPath":  "assets/audio/DU DU DA.mp3",
+                                                  "SimilarityThreshold":  0.65
+                                              },
+                                              {
+                                                  "Name":  "大泡泡",
+                                                  "TemplateImagePath":  "assets/大泡泡.png",
+                                                  "AudioPath":  "assets/audio/给我O泡.mp3",
+                                                  "SimilarityThreshold":  0.65
+                                              },
+                                              {
+                                                  "Name":  "中泡泡",
+                                                  "TemplateImagePath":  "assets/中泡泡.png",
+                                                  "AudioPath":  "assets/audio/给我O泡.mp3",
+                                                  "SimilarityThreshold":  0.65
+                                              },
+                                              {
+                                                  "Name":  "小泡泡",
+                                                  "TemplateImagePath":  "assets/小泡泡.png",
+                                                  "AudioPath":  "assets/audio/给我O泡.mp3",
+                                                  "SimilarityThreshold":  0.65
+                                              }
+                                          ],
+                               "SelectedSkillIndex":  0,
+                               "TemplateImagePath":  "assets/DUDUDA.png",
+                               "SimilarityThreshold":  0.65,
+                               "Hotkey":  162,
+                               "HotkeyName":  "Left Ctrl",
+                               "HotkeyInput":  {
+                                                   "Kind":  0,
+                                                   "KeyCode":  162,
+                                                   "Modifiers":  0,
+                                                   "DisplayName":  "Left Ctrl"
+                                               },
+                               "AudioPath":  "assets/audio/DU DU DA.mp3",
+                               "ScanIntervalMs":  200,
+                               "CooldownSeconds":  1
+                           },
+    "KeyAudioTrigger":  {
+                            "Enabled":  false,
+                            "CooldownSeconds":  1,
+                            "Key1":  85,
+                            "Key1Name":  "U",
+                            "Input1":  {
+                                           "Kind":  0,
+                                           "KeyCode":  85,
+                                           "Modifiers":  0,
+                                           "DisplayName":  "U"
+                                       },
+                            "AudioPath1":  "assets/audio/救救我呀_[cut_4sec].mp3",
+                            "Key2":  50,
+                            "Key2Name":  "2",
+                            "Input2":  {
+                                           "Kind":  0,
+                                           "KeyCode":  50,
+                                           "Modifiers":  0,
+                                           "DisplayName":  "2"
+                                       },
+                            "AudioPath2":  "",
+                            "Key3":  51,
+                            "Key3Name":  "3",
+                            "Input3":  {
+                                           "Kind":  0,
+                                           "KeyCode":  51,
+                                           "Modifiers":  0,
+                                           "DisplayName":  "3"
+                                       },
+                            "AudioPath3":  ""
+                        },
+    "RegionCaptureHotkeys":  {
+                                 "SkillRegionKey":  117,
+                                 "SkillRegionKeyName":  "F6",
+                                 "SkillRegionInput":  {
+                                                          "Kind":  0,
+                                                          "KeyCode":  117,
+                                                          "Modifiers":  0,
+                                                          "DisplayName":  "F6"
+                                                      },
+                                 "HealthRegionKey":  118,
+                                 "HealthRegionKeyName":  "F7",
+                                 "HealthRegionInput":  {
+                                                           "Kind":  0,
+                                                           "KeyCode":  118,
+                                                           "Modifiers":  0,
+                                                           "DisplayName":  "F7"
+                                                       },
+                                 "OcrTextRegionKey":  120,
+                                 "OcrTextRegionKeyName":  "F9",
+                                 "OcrTextRegionInput":  {
+                                                            "Kind":  0,
+                                                            "KeyCode":  120,
+                                                            "Modifiers":  0,
+                                                            "DisplayName":  "F9"
+                                                        },
+                                 "DeathTextRegionKey":  120,
+                                 "DeathTextRegionKeyName":  null
+                             },
+    "Regions":  [
+                    {
+                        "Kind":  "skill",
+                        "Name":  "技能区域",
+                        "Bounds":  {
+                                       "X":  1046,
+                                       "Y":  1251,
+                                       "Width":  331,
+                                       "Height":  166
+                                   },
+                        "ConsecutiveFramesRequired":  1,
+                        "ReadyTemplateImagePath":  "templates/defaults/skill_ready.png",
+                        "ReadySimilarityThreshold":  0.86,
+                        "EmptyTemplateImagePath":  "templates/defaults/skill_empty.png",
+                        "ReadyVsEmptyMargin":  0.015,
+                        "TemplateImagePath":  null,
+                        "TemplateSimilarityThreshold":  0.75,
+                        "DiffPixelThreshold":  30,
+                        "ChangedAreaRatioThreshold":  0.08
+                    },
+                    {
+                        "Kind":  "health",
+                        "Name":  "血条区域",
+                        "Bounds":  {
+                                       "X":  63,
+                                       "Y":  27,
+                                       "Width":  1489,
+                                       "Height":  154
+                                   },
+                        "ConsecutiveFramesRequired":  2,
+                        "ReadyTemplateImagePath":  null,
+                        "ReadySimilarityThreshold":  0.92,
+                        "EmptyTemplateImagePath":  null,
+                        "ReadyVsEmptyMargin":  0.03,
+                        "TemplateImagePath":  "templates/defaults/health_anchor.png",
+                        "TemplateSimilarityThreshold":  0.75,
+                        "DiffPixelThreshold":  30,
+                        "ChangedAreaRatioThreshold":  0.08
+                    }
+                ]
+}

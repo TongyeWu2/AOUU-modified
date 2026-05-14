@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Windows.Forms;
+using AOUU.Models;
 
 namespace AOUU.Services;
 
@@ -20,6 +21,8 @@ public sealed class InputCaptureService : IDisposable
     }
 
     public event Action<int>? InputPressed;
+
+    public event Action<InputBinding>? InputBindingPressed;
 
     public void Start()
     {
@@ -48,23 +51,32 @@ public sealed class InputCaptureService : IDisposable
     private void OnKeyboardPressed(int keyCode)
     {
         InputPressed?.Invoke(keyCode);
+        InputBindingPressed?.Invoke(InputBindingService.FromKeyboardEvent(keyCode));
     }
 
     private void OnMousePressed(int keyCode)
     {
         InputPressed?.Invoke(keyCode);
+        InputBindingPressed?.Invoke(InputBindingService.FromKeyboardEvent(keyCode));
     }
 
     private void GamepadPollTimer_Tick(object? sender, EventArgs e)
     {
         var pressedKeys = TriggerMonitorService.GetPressedGamepadKeys();
 
+        var hasNewGamepadPress = false;
         foreach (var keyCode in pressedKeys)
         {
             if (!_lastPressedGamepadKeys.Contains(keyCode))
             {
                 InputPressed?.Invoke(keyCode);
+                hasNewGamepadPress = true;
             }
+        }
+
+        if (hasNewGamepadPress)
+        {
+            InputBindingPressed?.Invoke(InputBindingService.FromGamepadKeys(pressedKeys));
         }
 
         _lastPressedGamepadKeys = pressedKeys;

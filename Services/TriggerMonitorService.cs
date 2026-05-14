@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
+using AOUU.Models;
 
 namespace AOUU.Services;
 
@@ -25,7 +26,7 @@ public sealed class TriggerMonitorService : IDisposable
     private const int GamepadDPadRight = GamepadCodeBase + 14;
     private const int GamepadLeftTrigger = GamepadCodeBase + 15;
     private const int GamepadRightTrigger = GamepadCodeBase + 16;
-    private const byte TriggerThreshold = 30;
+    private const byte TriggerThreshold = 128;
 
     private const ushort XInputGamepadDPadUp = 0x0001;
     private const ushort XInputGamepadDPadDown = 0x0002;
@@ -61,6 +62,8 @@ public sealed class TriggerMonitorService : IDisposable
     public event EventHandler? Triggered;
 
     public int TriggerKey { get; set; } = 0x77;
+
+    public InputBinding TriggerBinding { get; set; } = InputBindingService.FromLegacyHotkey(0x77);
 
     public bool Enabled
     {
@@ -159,6 +162,7 @@ public sealed class TriggerMonitorService : IDisposable
             0xA3 => "Right Ctrl",
             0xA4 => "Left Alt",
             0xA5 => "Right Alt",
+            >= 0x60 and <= 0x69 => $"NumPad {keyCode - 0x60}",
             >= 0x70 and <= 0x7B => $"F{keyCode - 0x6F}",
             >= 0x30 and <= 0x39 => ((char)keyCode).ToString(),
             >= 0x41 and <= 0x5A => ((char)keyCode).ToString(),
@@ -168,9 +172,14 @@ public sealed class TriggerMonitorService : IDisposable
 
     public static bool IsSupportedHotkey(int keyCode)
     {
+        return IsGamepadKey(keyCode) || IsSupportedKeyboardOrMouseKey(keyCode);
+    }
+
+    public static bool IsSupportedKeyboardOrMouseKey(int keyCode)
+    {
         if (TryGetGamepadKeyName(keyCode, out _))
         {
-            return true;
+            return false;
         }
 
         if (keyCode <= 0 || keyCode > MaxVirtualKey || keyCode == 0x01)
@@ -179,6 +188,11 @@ public sealed class TriggerMonitorService : IDisposable
         }
 
         return !GetKeyName(keyCode).StartsWith("未知按键 ", StringComparison.Ordinal);
+    }
+
+    public static bool IsGamepadKey(int keyCode)
+    {
+        return TryGetGamepadKeyName(keyCode, out _);
     }
 
     public static bool IsSameHotkey(int configuredKeyCode, int pressedKeyCode)
@@ -199,7 +213,10 @@ public sealed class TriggerMonitorService : IDisposable
 
     private void Timer_Tick(object? sender, EventArgs e)
     {
-        var isPressed = IsHotkeyPressed(TriggerKey);
+        var binding = InputBindingService.IsSupported(TriggerBinding)
+            ? TriggerBinding
+            : InputBindingService.FromLegacyHotkey(TriggerKey);
+        var isPressed = InputBindingService.IsPressed(binding);
         if (isPressed && !_wasPressed)
         {
             Triggered?.Invoke(this, EventArgs.Empty);
@@ -219,43 +236,22 @@ public sealed class TriggerMonitorService : IDisposable
         }
     }
 
-    private static bool IsHotkeyPressed(int keyCode)
+    public static bool IsGamepadKeyPressed(int keyCode)
     {
-        if (TryGetGamepadKeyName(keyCode, out _))
+        if (!TryGetGamepadKeyName(keyCode, out _))
         {
-            foreach (var state in EnumerateConnectedGamepadStates())
-            {
-                if (IsGamepadKeyPressed(state.Gamepad, keyCode))
-                {
-                    return true;
-                }
-            }
-
             return false;
         }
 
-        if (keyCode == 0x10)
+        foreach (var state in EnumerateConnectedGamepadStates())
         {
-            return (GetAsyncKeyState(0x10) & 0x8000) != 0 ||
-                   (GetAsyncKeyState(0xA0) & 0x8000) != 0 ||
-                   (GetAsyncKeyState(0xA1) & 0x8000) != 0;
+            if (IsGamepadKeyPressed(state.Gamepad, keyCode))
+            {
+                return true;
+            }
         }
 
-        if (keyCode == 0x11)
-        {
-            return (GetAsyncKeyState(0x11) & 0x8000) != 0 ||
-                   (GetAsyncKeyState(0xA2) & 0x8000) != 0 ||
-                   (GetAsyncKeyState(0xA3) & 0x8000) != 0;
-        }
-
-        if (keyCode == 0x12)
-        {
-            return (GetAsyncKeyState(0x12) & 0x8000) != 0 ||
-                   (GetAsyncKeyState(0xA4) & 0x8000) != 0 ||
-                   (GetAsyncKeyState(0xA5) & 0x8000) != 0;
-        }
-
-        return (GetAsyncKeyState(keyCode) & 0x8000) != 0;
+        return false;
     }
 
     private static IEnumerable<XInputState> EnumerateConnectedGamepadStates()
@@ -392,22 +388,22 @@ public sealed class TriggerMonitorService : IDisposable
     {
         name = keyCode switch
         {
-            GamepadA => "手柄 A",
-            GamepadB => "手柄 B",
-            GamepadX => "手柄 X",
-            GamepadY => "手柄 Y",
-            GamepadLeftShoulder => "手柄 LB",
-            GamepadRightShoulder => "手柄 RB",
-            GamepadBack => "手柄 Back",
-            GamepadStart => "手柄 Start",
-            GamepadLeftThumb => "手柄 LS",
-            GamepadRightThumb => "手柄 RS",
-            GamepadDPadUp => "手柄 十字键上",
-            GamepadDPadDown => "手柄 十字键下",
-            GamepadDPadLeft => "手柄 十字键左",
-            GamepadDPadRight => "手柄 十字键右",
-            GamepadLeftTrigger => "手柄 LT",
-            GamepadRightTrigger => "手柄 RT",
+            GamepadA => "Gamepad A",
+            GamepadB => "Gamepad B",
+            GamepadX => "Gamepad X",
+            GamepadY => "Gamepad Y",
+            GamepadLeftShoulder => "Gamepad LB",
+            GamepadRightShoulder => "Gamepad RB",
+            GamepadBack => "Gamepad Back",
+            GamepadStart => "Gamepad Start",
+            GamepadLeftThumb => "Gamepad Left Stick Button",
+            GamepadRightThumb => "Gamepad Right Stick Button",
+            GamepadDPadUp => "Gamepad DPad Up",
+            GamepadDPadDown => "Gamepad DPad Down",
+            GamepadDPadLeft => "Gamepad DPad Left",
+            GamepadDPadRight => "Gamepad DPad Right",
+            GamepadLeftTrigger => "Gamepad LT",
+            GamepadRightTrigger => "Gamepad RT",
             _ => string.Empty
         };
 

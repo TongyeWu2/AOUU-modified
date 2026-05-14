@@ -24,7 +24,10 @@ public partial class AOUU : Form
         SkillRegionCapture,
         HealthRegionCapture,
         OcrTextRegionCapture,
-        ImageHotkeyTrigger
+        ImageHotkeyTrigger,
+        KeyAudioTrigger1,
+        KeyAudioTrigger2,
+        KeyAudioTrigger3
     }
 
     private enum RegionSettingsMode
@@ -88,6 +91,17 @@ public partial class AOUU : Form
     private readonly Button _browseImageHotkeyAudioButton;
     private readonly NumericUpDown _imageHotkeyScanIntervalBox;
     private readonly NumericUpDown _imageHotkeyCooldownBox;
+    private readonly CheckBox _keyAudioTriggerEnabledBox;
+    private readonly NumericUpDown _keyAudioCooldownBox;
+    private readonly Button _setKeyAudioKey1Button;
+    private readonly TextBox _keyAudioPath1Box;
+    private readonly Button _browseKeyAudio1Button;
+    private readonly Button _setKeyAudioKey2Button;
+    private readonly TextBox _keyAudioPath2Box;
+    private readonly Button _browseKeyAudio2Button;
+    private readonly Button _setKeyAudioKey3Button;
+    private readonly TextBox _keyAudioPath3Box;
+    private readonly Button _browseKeyAudio3Button;
     private readonly TriggerMonitorService _triggerMonitorService;
     private readonly TriggerMonitorService _regionCaptureMonitorService;
     private readonly TriggerMonitorService _skillRegionCaptureMonitorService;
@@ -108,6 +122,7 @@ public partial class AOUU : Form
     private readonly Dictionary<string, DateTime> _lastTextTriggerUtc = [];
     private readonly CancellationTokenSource _shutdownCts = new();
     private readonly object _audioLock = new();
+    private readonly List<OneShotAudioPlayback> _oneShotAudioPlaybacks = [];
     private static readonly string[] SupportedAudioExtensions = [".mp3", ".wav"];
 
     private readonly Random _audioRandom = new();
@@ -131,6 +146,9 @@ public partial class AOUU : Form
     private ImageHotkeySkillConfig? _matchedImageHotkeySkill;
     private double _lastImageHotkeyScore;
     private DateTime _lastImageHotkeyTriggerUtc = DateTime.MinValue;
+    private DateTime _lastKeyAudioTrigger1Utc = DateTime.MinValue;
+    private DateTime _lastKeyAudioTrigger2Utc = DateTime.MinValue;
+    private DateTime _lastKeyAudioTrigger3Utc = DateTime.MinValue;
     private KeyConfigurationTarget _preparedKeyConfigurationTarget;
 
     public AOUU()
@@ -139,7 +157,7 @@ public partial class AOUU : Form
 
         Text = "┗|｀O′|┛ 嗷~~";
         Width = 1120;
-        Height = 1040;
+        Height = 1220;
         MinimumSize = new Size(1040, 760);
         AutoScroll = true;
         StartPosition = FormStartPosition.CenterScreen;
@@ -149,7 +167,7 @@ public partial class AOUU : Form
 
         _configService = new ConfigService(AppDomain.CurrentDomain.BaseDirectory);
         _inputCaptureService = new InputCaptureService();
-        _inputCaptureService.InputPressed += InputCaptureService_InputPressed;
+        _inputCaptureService.InputBindingPressed += InputCaptureService_InputBindingPressed;
         _inputCaptureService.Start();
         _screenCaptureService = new ScreenCaptureService();
         _screenTextRecognizer = new ScreenTextRecognizer();
@@ -676,6 +694,75 @@ public partial class AOUU : Form
         };
         _imageHotkeyCooldownBox.ValueChanged += ImageHotkeyTriggerSettings_Changed;
 
+        _keyAudioTriggerEnabledBox = new CheckBox
+        {
+            Text = "启用按键音效"
+        };
+        _keyAudioTriggerEnabledBox.CheckedChanged += KeyAudioTriggerSettings_Changed;
+
+        _keyAudioCooldownBox = new NumericUpDown
+        {
+            Minimum = 1,
+            Maximum = 3600,
+            Increment = 1,
+            Value = 1
+        };
+        _keyAudioCooldownBox.ValueChanged += KeyAudioTriggerSettings_Changed;
+
+        _setKeyAudioKey1Button = new Button
+        {
+            Text = "按键1：1"
+        };
+        _setKeyAudioKey1Button.Click += (_, _) => ConfigureHotkey(KeyConfigurationTarget.KeyAudioTrigger1, "按键音效 1");
+
+        _keyAudioPath1Box = new TextBox
+        {
+            ReadOnly = true,
+            TabStop = false
+        };
+
+        _browseKeyAudio1Button = new Button
+        {
+            Text = "音频1"
+        };
+        _browseKeyAudio1Button.Click += (_, _) => BrowseKeyAudioButton_Click(1);
+
+        _setKeyAudioKey2Button = new Button
+        {
+            Text = "按键2：2"
+        };
+        _setKeyAudioKey2Button.Click += (_, _) => ConfigureHotkey(KeyConfigurationTarget.KeyAudioTrigger2, "按键音效 2");
+
+        _keyAudioPath2Box = new TextBox
+        {
+            ReadOnly = true,
+            TabStop = false
+        };
+
+        _browseKeyAudio2Button = new Button
+        {
+            Text = "音频2"
+        };
+        _browseKeyAudio2Button.Click += (_, _) => BrowseKeyAudioButton_Click(2);
+
+        _setKeyAudioKey3Button = new Button
+        {
+            Text = "按键3：3"
+        };
+        _setKeyAudioKey3Button.Click += (_, _) => ConfigureHotkey(KeyConfigurationTarget.KeyAudioTrigger3, "按键音效 3");
+
+        _keyAudioPath3Box = new TextBox
+        {
+            ReadOnly = true,
+            TabStop = false
+        };
+
+        _browseKeyAudio3Button = new Button
+        {
+            Text = "音频3"
+        };
+        _browseKeyAudio3Button.Click += (_, _) => BrowseKeyAudioButton_Click(3);
+
         _setSkillRegionButton = new Button
         {
             Left = 24,
@@ -706,7 +793,7 @@ public partial class AOUU : Form
         _regionsListBox = new ListBox
         {
             Left = 24,
-            Top = 760,
+            Top = 938,
             Width = 1036,
             Height = 130,
             HorizontalScrollbar = true
@@ -715,7 +802,7 @@ public partial class AOUU : Form
         _statusLabel = new Label
         {
             Left = 24,
-            Top = 948,
+            Top = 1126,
             Width = 1036,
             Height = 60
         };
@@ -757,11 +844,12 @@ public partial class AOUU : Form
             _imageHotkeyScanIntervalBox,
             _imageHotkeyCooldownBox));
         Controls.Add(CreateOcrTextTriggerSection(top: 460));
-        Controls.Add(CreateGeneralSettingsSection(top: 596));
+        Controls.Add(CreateKeyAudioTriggerSection(top: 596));
+        Controls.Add(CreateGeneralSettingsSection(top: 774));
         Controls.Add(new Label
         {
             Left = 24,
-            Top = 730,
+            Top = 908,
             Width = 260,
             Text = "当前检测区域"
         });
@@ -769,7 +857,7 @@ public partial class AOUU : Form
         Controls.Add(new Label
         {
             Left = 24,
-            Top = 916,
+            Top = 1094,
             Width = 860,
             Text = "点击配置键位后会弹出识别框，只有确认后的结果才会保存，支持键盘、鼠标侧键和手柄按钮，鼠标左键不会被接受。"
         });
@@ -955,6 +1043,83 @@ public partial class AOUU : Form
         return groupBox;
     }
 
+    private GroupBox CreateKeyAudioTriggerSection(int top)
+    {
+        var groupBox = new GroupBox
+        {
+            Left = 24,
+            Top = top,
+            Width = 1036,
+            Height = 160,
+            Text = "按键音效",
+            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+            Tag = "PinnedLayout"
+        };
+
+        var layout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            Padding = new Padding(12, 14, 12, 12),
+            ColumnCount = 7,
+            RowCount = 4
+        };
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 132));
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 132));
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 78));
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 92));
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 82));
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 88));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
+
+        foreach (var control in new Control[]
+                 {
+                     _keyAudioTriggerEnabledBox,
+                     _keyAudioCooldownBox,
+                     _setKeyAudioKey1Button,
+                     _keyAudioPath1Box,
+                     _browseKeyAudio1Button,
+                     _setKeyAudioKey2Button,
+                     _keyAudioPath2Box,
+                     _browseKeyAudio2Button,
+                     _setKeyAudioKey3Button,
+                     _keyAudioPath3Box,
+                     _browseKeyAudio3Button
+                 })
+        {
+            PrepareSectionControl(control);
+        }
+
+        layout.Controls.Add(_keyAudioTriggerEnabledBox, 0, 0);
+        layout.SetColumnSpan(_keyAudioTriggerEnabledBox, 2);
+        layout.Controls.Add(CreateSectionLabel("冷却秒"), 4, 0);
+        layout.Controls.Add(_keyAudioCooldownBox, 5, 0);
+
+        layout.Controls.Add(_setKeyAudioKey1Button, 0, 1);
+        layout.Controls.Add(CreateSectionLabel("音频1"), 1, 1);
+        layout.Controls.Add(_keyAudioPath1Box, 2, 1);
+        layout.SetColumnSpan(_keyAudioPath1Box, 3);
+        layout.Controls.Add(_browseKeyAudio1Button, 5, 1);
+
+        layout.Controls.Add(_setKeyAudioKey2Button, 0, 2);
+        layout.Controls.Add(CreateSectionLabel("音频2"), 1, 2);
+        layout.Controls.Add(_keyAudioPath2Box, 2, 2);
+        layout.SetColumnSpan(_keyAudioPath2Box, 3);
+        layout.Controls.Add(_browseKeyAudio2Button, 5, 2);
+
+        layout.Controls.Add(_setKeyAudioKey3Button, 0, 3);
+        layout.Controls.Add(CreateSectionLabel("音频3"), 1, 3);
+        layout.Controls.Add(_keyAudioPath3Box, 2, 3);
+        layout.SetColumnSpan(_keyAudioPath3Box, 3);
+        layout.Controls.Add(_browseKeyAudio3Button, 5, 3);
+
+        groupBox.Controls.Add(layout);
+        return groupBox;
+    }
+
     private GroupBox CreateGeneralSettingsSection(int top)
     {
         var groupBox = new GroupBox
@@ -1085,6 +1250,7 @@ public partial class AOUU : Form
                      _textTriggerTextBox,
                      _textTriggerScanIntervalBox,
                      _textTriggerCooldownBox,
+                     _keyAudioCooldownBox,
                      _imageHotkeySkillNameBox,
                      _imageHotkeySimilarityBox,
                      _imageHotkeyScanIntervalBox,
@@ -1127,6 +1293,10 @@ public partial class AOUU : Form
                  ReferenceEquals(control, _textTriggerCooldownBox))
         {
             TextTriggerSettings_Changed(control, EventArgs.Empty);
+        }
+        else if (ReferenceEquals(control, _keyAudioCooldownBox))
+        {
+            KeyAudioTriggerSettings_Changed(control, EventArgs.Empty);
         }
         else if (ReferenceEquals(control, _ultHotkeySimilarityBox))
         {
@@ -1183,12 +1353,12 @@ public partial class AOUU : Form
         var result = dialog.ShowDialog(this);
         var refreshStatus = true;
 
-        if (result == DialogResult.OK && dialog.CapturedKeyCode.HasValue)
+        if (result == DialogResult.OK && dialog.CapturedBinding is not null)
         {
             if (ApplyCapturedHotkey(
                 target,
-                dialog.CapturedKeyCode.Value,
-                dialog.CapturedKeyName ?? TriggerMonitorService.GetKeyName(dialog.CapturedKeyCode.Value)))
+                dialog.CapturedBinding,
+                dialog.CapturedKeyName ?? InputBindingService.GetDisplayName(dialog.CapturedBinding)))
             {
                 SetStatus($"{title}已设置为：{dialog.CapturedKeyName}");
             }
@@ -1223,9 +1393,11 @@ public partial class AOUU : Form
         SetStatus("按键识别框已打开。先松开鼠标，再在识别框内按下新的键位。");
     }
 
-    private bool ApplyCapturedHotkey(KeyConfigurationTarget target, int keyCode, string keyName)
+    private bool ApplyCapturedHotkey(KeyConfigurationTarget target, InputBinding binding, string keyName)
     {
-        if (TryGetHotkeyConflict(target, keyCode, out var conflictMessage))
+        binding.DisplayName = keyName;
+
+        if (TryGetHotkeyConflict(target, binding, out var conflictMessage))
         {
             SetStatus(conflictMessage);
             return false;
@@ -1233,44 +1405,75 @@ public partial class AOUU : Form
 
         if (target == KeyConfigurationTarget.Trigger)
         {
-            _config.TriggerKey = keyCode;
+            _config.TriggerInput = binding.Clone();
+            _config.TriggerKey = binding.KeyCode;
             _config.TriggerKeyName = keyName;
-            _config.UltHotkeyTrigger.Hotkey = keyCode;
+            _config.UltHotkeyTrigger.HotkeyInput = binding.Clone();
+            _config.UltHotkeyTrigger.Hotkey = binding.KeyCode;
             _config.UltHotkeyTrigger.HotkeyName = keyName;
-            _triggerMonitorService.TriggerKey = keyCode;
+            _triggerMonitorService.TriggerKey = binding.KeyCode;
+            _triggerMonitorService.TriggerBinding = binding.Clone();
         }
         else if (target == KeyConfigurationTarget.RegionCapture)
         {
-            _config.RegionCaptureKey = keyCode;
+            _config.RegionCaptureInput = binding.Clone();
+            _config.RegionCaptureKey = binding.KeyCode;
             _config.RegionCaptureKeyName = keyName;
-            _regionCaptureMonitorService.TriggerKey = keyCode;
+            _regionCaptureMonitorService.TriggerKey = binding.KeyCode;
+            _regionCaptureMonitorService.TriggerBinding = binding.Clone();
         }
         else if (target == KeyConfigurationTarget.SkillRegionCapture)
         {
-            _config.RegionCaptureHotkeys.SkillRegionKey = keyCode;
+            _config.RegionCaptureHotkeys.SkillRegionInput = binding.Clone();
+            _config.RegionCaptureHotkeys.SkillRegionKey = binding.KeyCode;
             _config.RegionCaptureHotkeys.SkillRegionKeyName = keyName;
-            _skillRegionCaptureMonitorService.TriggerKey = keyCode;
+            _skillRegionCaptureMonitorService.TriggerKey = binding.KeyCode;
+            _skillRegionCaptureMonitorService.TriggerBinding = binding.Clone();
         }
         else if (target == KeyConfigurationTarget.HealthRegionCapture)
         {
-            _config.RegionCaptureHotkeys.HealthRegionKey = keyCode;
+            _config.RegionCaptureHotkeys.HealthRegionInput = binding.Clone();
+            _config.RegionCaptureHotkeys.HealthRegionKey = binding.KeyCode;
             _config.RegionCaptureHotkeys.HealthRegionKeyName = keyName;
-            _healthRegionCaptureMonitorService.TriggerKey = keyCode;
+            _healthRegionCaptureMonitorService.TriggerKey = binding.KeyCode;
+            _healthRegionCaptureMonitorService.TriggerBinding = binding.Clone();
         }
         else if (target == KeyConfigurationTarget.OcrTextRegionCapture)
         {
-            _config.RegionCaptureHotkeys.OcrTextRegionKey = keyCode;
+            _config.RegionCaptureHotkeys.OcrTextRegionInput = binding.Clone();
+            _config.RegionCaptureHotkeys.OcrTextRegionKey = binding.KeyCode;
             _config.RegionCaptureHotkeys.OcrTextRegionKeyName = keyName;
-            _ocrTextRegionCaptureMonitorService.TriggerKey = keyCode;
+            _ocrTextRegionCaptureMonitorService.TriggerKey = binding.KeyCode;
+            _ocrTextRegionCaptureMonitorService.TriggerBinding = binding.Clone();
         }
         else if (target == KeyConfigurationTarget.ImageHotkeyTrigger)
         {
-            _config.ImageHotkeyTrigger.Hotkey = keyCode;
+            _config.ImageHotkeyTrigger.HotkeyInput = binding.Clone();
+            _config.ImageHotkeyTrigger.Hotkey = binding.KeyCode;
             _config.ImageHotkeyTrigger.HotkeyName = keyName;
+        }
+        else if (target == KeyConfigurationTarget.KeyAudioTrigger1)
+        {
+            _config.KeyAudioTrigger.Input1 = binding.Clone();
+            _config.KeyAudioTrigger.Key1 = binding.KeyCode;
+            _config.KeyAudioTrigger.Key1Name = keyName;
+        }
+        else if (target == KeyConfigurationTarget.KeyAudioTrigger2)
+        {
+            _config.KeyAudioTrigger.Input2 = binding.Clone();
+            _config.KeyAudioTrigger.Key2 = binding.KeyCode;
+            _config.KeyAudioTrigger.Key2Name = keyName;
+        }
+        else if (target == KeyConfigurationTarget.KeyAudioTrigger3)
+        {
+            _config.KeyAudioTrigger.Input3 = binding.Clone();
+            _config.KeyAudioTrigger.Key3 = binding.KeyCode;
+            _config.KeyAudioTrigger.Key3Name = keyName;
         }
 
         SaveConfig();
         UpdateRegionCaptureHotkeyButtonText();
+        UpdateKeyAudioTriggerDisplay();
         return true;
     }
 
@@ -1284,20 +1487,23 @@ public partial class AOUU : Form
             KeyConfigurationTarget.HealthRegionCapture => _config.RegionCaptureHotkeys.HealthRegionKeyName,
             KeyConfigurationTarget.OcrTextRegionCapture => _config.RegionCaptureHotkeys.OcrTextRegionKeyName,
             KeyConfigurationTarget.ImageHotkeyTrigger => _config.ImageHotkeyTrigger.HotkeyName,
+            KeyConfigurationTarget.KeyAudioTrigger1 => _config.KeyAudioTrigger.Key1Name,
+            KeyConfigurationTarget.KeyAudioTrigger2 => _config.KeyAudioTrigger.Key2Name,
+            KeyConfigurationTarget.KeyAudioTrigger3 => _config.KeyAudioTrigger.Key3Name,
             _ => string.Empty
         };
     }
 
-    private bool TryGetHotkeyConflict(KeyConfigurationTarget target, int keyCode, out string message)
+    private bool TryGetHotkeyConflict(KeyConfigurationTarget target, InputBinding binding, out string message)
     {
-        foreach (var (otherTarget, label, configuredKey) in EnumerateConfiguredHotkeys())
+        foreach (var (otherTarget, label, configuredBinding) in EnumerateConfiguredHotkeys())
         {
-            if (otherTarget == target || !TriggerMonitorService.IsSameHotkey(configuredKey, keyCode))
+            if (otherTarget == target || !InputBindingService.Conflicts(configuredBinding, binding))
             {
                 continue;
             }
 
-            message = $"快捷键冲突：{TriggerMonitorService.GetKeyName(keyCode)} 已用于{label}，请换一个键。";
+            message = $"快捷键冲突：{binding.DisplayName} 已用于{label}，请换一个键。";
             return true;
         }
 
@@ -1305,14 +1511,17 @@ public partial class AOUU : Form
         return false;
     }
 
-    private IEnumerable<(KeyConfigurationTarget Target, string Label, int KeyCode)> EnumerateConfiguredHotkeys()
+    private IEnumerable<(KeyConfigurationTarget Target, string Label, InputBinding Binding)> EnumerateConfiguredHotkeys()
     {
-        yield return (KeyConfigurationTarget.Trigger, "大招触发按键", _config.TriggerKey);
-        yield return (KeyConfigurationTarget.RegionCapture, "截图键", _config.RegionCaptureKey);
-        yield return (KeyConfigurationTarget.SkillRegionCapture, "技能区域快捷键", _config.RegionCaptureHotkeys.SkillRegionKey);
-        yield return (KeyConfigurationTarget.HealthRegionCapture, "血条区域快捷键", _config.RegionCaptureHotkeys.HealthRegionKey);
-        yield return (KeyConfigurationTarget.OcrTextRegionCapture, "OCR文字区域快捷键", _config.RegionCaptureHotkeys.OcrTextRegionKey);
-        yield return (KeyConfigurationTarget.ImageHotkeyTrigger, "战技触发按键", _config.ImageHotkeyTrigger.Hotkey);
+        yield return (KeyConfigurationTarget.Trigger, "大招触发按键", _config.TriggerInput);
+        yield return (KeyConfigurationTarget.RegionCapture, "截图键", _config.RegionCaptureInput);
+        yield return (KeyConfigurationTarget.SkillRegionCapture, "技能区域快捷键", _config.RegionCaptureHotkeys.SkillRegionInput);
+        yield return (KeyConfigurationTarget.HealthRegionCapture, "血条区域快捷键", _config.RegionCaptureHotkeys.HealthRegionInput);
+        yield return (KeyConfigurationTarget.OcrTextRegionCapture, "OCR文字区域快捷键", _config.RegionCaptureHotkeys.OcrTextRegionInput);
+        yield return (KeyConfigurationTarget.ImageHotkeyTrigger, "战技触发按键", _config.ImageHotkeyTrigger.HotkeyInput);
+        yield return (KeyConfigurationTarget.KeyAudioTrigger1, "按键音效 1", _config.KeyAudioTrigger.Input1);
+        yield return (KeyConfigurationTarget.KeyAudioTrigger2, "按键音效 2", _config.KeyAudioTrigger.Input2);
+        yield return (KeyConfigurationTarget.KeyAudioTrigger3, "按键音效 3", _config.KeyAudioTrigger.Input3);
     }
 
     private void TimingBox_ValueChanged(object? sender, EventArgs e)
@@ -1416,6 +1625,45 @@ public partial class AOUU : Form
         SaveConfig();
         UpdateTextTriggerDisplay();
         UpdateStatus();
+    }
+
+    private void KeyAudioTriggerSettings_Changed(object? sender, EventArgs e)
+    {
+        if (_isApplyingConfigToUi)
+        {
+            return;
+        }
+
+        _config.KeyAudioTrigger.Enabled = _keyAudioTriggerEnabledBox.Checked;
+        _config.KeyAudioTrigger.CooldownSeconds = (int)_keyAudioCooldownBox.Value;
+        SaveConfig();
+        UpdateKeyAudioTriggerDisplay();
+        UpdateStatus();
+    }
+
+    private void BrowseKeyAudioButton_Click(int index)
+    {
+        if (!TryBrowseAudioFile(out var path))
+        {
+            return;
+        }
+
+        if (index == 1)
+        {
+            _config.KeyAudioTrigger.AudioPath1 = path;
+        }
+        else if (index == 2)
+        {
+            _config.KeyAudioTrigger.AudioPath2 = path;
+        }
+        else if (index == 3)
+        {
+            _config.KeyAudioTrigger.AudioPath3 = path;
+        }
+
+        SaveConfig();
+        UpdateKeyAudioTriggerDisplay();
+        SetStatus($"按键音效 {index} 的音频已更新。");
     }
 
     private void UltHotkeyTriggerSettings_Changed(object? sender, EventArgs e)
@@ -2196,15 +2444,15 @@ public partial class AOUU : Form
         }, _shutdownCts.Token);
     }
 
-    private void HandleImageHotkeyPressed(int keyCode)
+    private void HandleImageHotkeyPressed(InputBinding binding)
     {
         var trigger = _config.ImageHotkeyTrigger;
-        if (!trigger.Enabled || !TriggerMonitorService.IsSameHotkey(trigger.Hotkey, keyCode))
+        if (!trigger.Enabled || !InputBindingService.Matches(trigger.HotkeyInput, binding))
         {
             return;
         }
 
-        if (trigger.Hotkey <= 0 || !TriggerMonitorService.IsSupportedHotkey(trigger.Hotkey))
+        if (!InputBindingService.IsSupported(trigger.HotkeyInput))
         {
             SetStatus("战技音效未配置有效按键。");
             return;
@@ -2310,9 +2558,64 @@ public partial class AOUU : Form
         action();
     }
 
-    private void InputCaptureService_InputPressed(int keyCode)
+    private void InputCaptureService_InputBindingPressed(InputBinding binding)
     {
-        HandleImageHotkeyPressed(keyCode);
+        HandleKeyAudioTriggerPressed(binding);
+        HandleImageHotkeyPressed(binding);
+    }
+
+    private void HandleKeyAudioTriggerPressed(InputBinding binding)
+    {
+        var trigger = _config.KeyAudioTrigger;
+        if (!trigger.Enabled || _isConfiguringKey)
+        {
+            return;
+        }
+
+        if (InputBindingService.Matches(trigger.Input1, binding))
+        {
+            TryPlayKeyAudio(1, trigger.AudioPath1, ref _lastKeyAudioTrigger1Utc);
+            return;
+        }
+
+        if (InputBindingService.Matches(trigger.Input2, binding))
+        {
+            TryPlayKeyAudio(2, trigger.AudioPath2, ref _lastKeyAudioTrigger2Utc);
+            return;
+        }
+
+        if (InputBindingService.Matches(trigger.Input3, binding))
+        {
+            TryPlayKeyAudio(3, trigger.AudioPath3, ref _lastKeyAudioTrigger3Utc);
+        }
+    }
+
+    private void TryPlayKeyAudio(int index, string audioPath, ref DateTime lastTriggerUtc)
+    {
+        var now = DateTime.UtcNow;
+        var cooldown = TimeSpan.FromSeconds(Math.Max(1, _config.KeyAudioTrigger.CooldownSeconds));
+        if (now - lastTriggerUtc < cooldown)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(audioPath) ||
+            (!File.Exists(audioPath) && !Directory.Exists(audioPath)))
+        {
+            SetStatus($"按键音效 {index} 的音频文件不存在：{audioPath}");
+            lastTriggerUtc = now;
+            return;
+        }
+
+        if (!PlayOneShotAudioPath(audioPath, out var playbackMessage))
+        {
+            SetStatus(playbackMessage);
+            lastTriggerUtc = now;
+            return;
+        }
+
+        lastTriggerUtc = now;
+        SetStatus($"按键音效 {index} 已触发。");
     }
 
     private void RemoveRegionButton_Click(object? sender, EventArgs e)
@@ -2729,6 +3032,49 @@ public partial class AOUU : Form
         }
     }
 
+    private bool PlayOneShotAudioPath(string path, out string message)
+    {
+        lock (_audioLock)
+        {
+            if (!TryResolveAudioPath(path, out var audioPath))
+            {
+                message = "音频播放失败，请检查文件格式或路径。";
+                return false;
+            }
+
+            AudioFileReader? audioFile = null;
+            WaveOutEvent? outputDevice = null;
+            try
+            {
+                audioFile = new AudioFileReader(audioPath)
+                {
+                    Volume = Math.Clamp(_config.AudioVolume, 0f, 1f)
+                };
+                outputDevice = CreateOutputDevice();
+                var playback = new OneShotAudioPlayback(outputDevice, audioFile);
+                outputDevice.PlaybackStopped += OneShotOutputDevice_PlaybackStopped;
+                _oneShotAudioPlaybacks.Add(playback);
+                outputDevice.Init(audioFile);
+                outputDevice.Play();
+                message = "音频已开始播放。";
+                return true;
+            }
+            catch
+            {
+                if (outputDevice is not null)
+                {
+                    _oneShotAudioPlaybacks.RemoveAll(item => ReferenceEquals(item.OutputDevice, outputDevice));
+                    outputDevice.PlaybackStopped -= OneShotOutputDevice_PlaybackStopped;
+                    outputDevice.Dispose();
+                }
+
+                audioFile?.Dispose();
+                message = "音频播放失败，请检查文件格式或路径。";
+                return false;
+            }
+        }
+    }
+
     private void OutputDevice_PlaybackStopped(object? sender, StoppedEventArgs e)
     {
         lock (_audioLock)
@@ -2739,11 +3085,29 @@ public partial class AOUU : Form
         }
     }
 
+    private void OneShotOutputDevice_PlaybackStopped(object? sender, StoppedEventArgs e)
+    {
+        lock (_audioLock)
+        {
+            var playback = _oneShotAudioPlaybacks.FirstOrDefault(item => ReferenceEquals(item.OutputDevice, sender));
+            if (playback is null)
+            {
+                return;
+            }
+
+            _oneShotAudioPlaybacks.Remove(playback);
+            playback.OutputDevice.PlaybackStopped -= OneShotOutputDevice_PlaybackStopped;
+            playback.OutputDevice.Dispose();
+            playback.AudioFile.Dispose();
+        }
+    }
+
     private void DisposeAudio()
     {
         lock (_audioLock)
         {
             DisposeMainAudioLocked();
+            DisposeOneShotAudioLocked();
         }
     }
 
@@ -2761,6 +3125,19 @@ public partial class AOUU : Form
 
         _audioFile?.Dispose();
         _audioFile = null;
+    }
+
+    private void DisposeOneShotAudioLocked()
+    {
+        foreach (var playback in _oneShotAudioPlaybacks.ToList())
+        {
+            playback.OutputDevice.PlaybackStopped -= OneShotOutputDevice_PlaybackStopped;
+            playback.OutputDevice.Stop();
+            playback.OutputDevice.Dispose();
+            playback.AudioFile.Dispose();
+        }
+
+        _oneShotAudioPlaybacks.Clear();
     }
 
     private WaveOutEvent CreateOutputDevice()
@@ -2905,6 +3282,9 @@ public partial class AOUU : Form
             _imageHotkeyScanIntervalBox.Value = Math.Clamp(_config.ImageHotkeyTrigger.ScanIntervalMs, (int)_imageHotkeyScanIntervalBox.Minimum, (int)_imageHotkeyScanIntervalBox.Maximum);
             _imageHotkeyCooldownBox.Value = Math.Clamp(_config.ImageHotkeyTrigger.CooldownSeconds, (int)_imageHotkeyCooldownBox.Minimum, (int)_imageHotkeyCooldownBox.Maximum);
             UpdateImageHotkeyTriggerDisplay();
+            _keyAudioTriggerEnabledBox.Checked = _config.KeyAudioTrigger.Enabled;
+            _keyAudioCooldownBox.Value = Math.Clamp(_config.KeyAudioTrigger.CooldownSeconds, (int)_keyAudioCooldownBox.Minimum, (int)_keyAudioCooldownBox.Maximum);
+            UpdateKeyAudioTriggerDisplay();
             SyncTextTriggerTimer();
             SyncUltHotkeyScanTimer();
             SyncImageHotkeyScanTimer();
@@ -2913,10 +3293,15 @@ public partial class AOUU : Form
             UpdateVolumeDisplay();
             ApplyAudioVolume();
             _triggerMonitorService.TriggerKey = _config.TriggerKey;
+            _triggerMonitorService.TriggerBinding = _config.TriggerInput.Clone();
             _regionCaptureMonitorService.TriggerKey = _config.RegionCaptureKey;
+            _regionCaptureMonitorService.TriggerBinding = _config.RegionCaptureInput.Clone();
             _skillRegionCaptureMonitorService.TriggerKey = _config.RegionCaptureHotkeys.SkillRegionKey;
+            _skillRegionCaptureMonitorService.TriggerBinding = _config.RegionCaptureHotkeys.SkillRegionInput.Clone();
             _healthRegionCaptureMonitorService.TriggerKey = _config.RegionCaptureHotkeys.HealthRegionKey;
+            _healthRegionCaptureMonitorService.TriggerBinding = _config.RegionCaptureHotkeys.HealthRegionInput.Clone();
             _ocrTextRegionCaptureMonitorService.TriggerKey = _config.RegionCaptureHotkeys.OcrTextRegionKey;
+            _ocrTextRegionCaptureMonitorService.TriggerBinding = _config.RegionCaptureHotkeys.OcrTextRegionInput.Clone();
         }
         finally
         {
@@ -2973,8 +3358,9 @@ public partial class AOUU : Form
         textTrigger.ScanIntervalMs = (int)_textTriggerScanIntervalBox.Value;
         textTrigger.CooldownSeconds = (int)_textTriggerCooldownBox.Value;
         _config.UltHotkeyTrigger.Enabled = _ultHotkeyTriggerEnabledBox.Checked;
-        _config.UltHotkeyTrigger.Hotkey = _config.TriggerKey;
-        _config.UltHotkeyTrigger.HotkeyName = _config.TriggerKeyName;
+        _config.UltHotkeyTrigger.HotkeyInput = _config.TriggerInput.Clone();
+        _config.UltHotkeyTrigger.Hotkey = _config.TriggerInput.KeyCode;
+        _config.UltHotkeyTrigger.HotkeyName = _config.TriggerInput.DisplayName;
         _config.UltHotkeyTrigger.SelectedSkillIndex = _ultHotkeySkillsListBox.SelectedIndex < 0
             ? 0
             : _ultHotkeySkillsListBox.SelectedIndex;
@@ -2983,6 +3369,8 @@ public partial class AOUU : Form
         _config.ImageHotkeyTrigger.Enabled = _imageHotkeyTriggerEnabledBox.Checked;
         _config.ImageHotkeyTrigger.ScanIntervalMs = (int)_imageHotkeyScanIntervalBox.Value;
         _config.ImageHotkeyTrigger.CooldownSeconds = (int)_imageHotkeyCooldownBox.Value;
+        _config.KeyAudioTrigger.Enabled = _keyAudioTriggerEnabledBox.Checked;
+        _config.KeyAudioTrigger.CooldownSeconds = (int)_keyAudioCooldownBox.Value;
         _configService.Save(_config);
     }
 
@@ -2993,6 +3381,23 @@ public partial class AOUU : Form
         _setOcrTextRegionCaptureKeyButton.Text = $"设置OCR文字区域快捷键：{_config.RegionCaptureHotkeys.OcrTextRegionKeyName}";
         _setTriggerKeyButton.Text = $"大招按键：{_config.TriggerKeyName}";
         _setImageHotkeyButton.Text = $"战技按键：{_config.ImageHotkeyTrigger.HotkeyName}";
+        UpdateKeyAudioTriggerDisplay();
+    }
+
+    private void UpdateKeyAudioTriggerDisplay()
+    {
+        _setKeyAudioKey1Button.Text = $"按键1：{_config.KeyAudioTrigger.Key1Name}";
+        _setKeyAudioKey2Button.Text = $"按键2：{_config.KeyAudioTrigger.Key2Name}";
+        _setKeyAudioKey3Button.Text = $"按键3：{_config.KeyAudioTrigger.Key3Name}";
+        _keyAudioPath1Box.Text = string.IsNullOrWhiteSpace(_config.KeyAudioTrigger.AudioPath1)
+            ? "未选择音频1"
+            : Path.GetFileName(_config.KeyAudioTrigger.AudioPath1);
+        _keyAudioPath2Box.Text = string.IsNullOrWhiteSpace(_config.KeyAudioTrigger.AudioPath2)
+            ? "未选择音频2"
+            : Path.GetFileName(_config.KeyAudioTrigger.AudioPath2);
+        _keyAudioPath3Box.Text = string.IsNullOrWhiteSpace(_config.KeyAudioTrigger.AudioPath3)
+            ? "未选择音频3"
+            : Path.GetFileName(_config.KeyAudioTrigger.AudioPath3);
     }
 
     private void UpdateTextTriggerDisplay()
@@ -3355,9 +3760,10 @@ public partial class AOUU : Form
         var enabledTextTriggerCount = _config.TextTriggers.Count(trigger => trigger.Enabled);
         var ultHotkeyTriggerState = _config.UltHotkeyTrigger.Enabled ? "开" : "关";
         var imageHotkeyTriggerState = _config.ImageHotkeyTrigger.Enabled ? "开" : "关";
+        var keyAudioTriggerState = _config.KeyAudioTrigger.Enabled ? "开" : "关";
         var regionCount = _config.Regions.Count;
         _statusLabel.Text =
-            $"输出：{outputDevice}。OCR文字触发：{enabledTextTriggerCount}。大招音效：{ultHotkeyTriggerState}。战技音效：{imageHotkeyTriggerState}。大招触发键：{_config.TriggerKeyName}。截图键：{_config.RegionCaptureKeyName}。检测区域数量：{regionCount}。";
+            $"输出：{outputDevice}。OCR文字触发：{enabledTextTriggerCount}。大招音效：{ultHotkeyTriggerState}。战技音效：{imageHotkeyTriggerState}。按键音效：{keyAudioTriggerState}。大招触发键：{_config.TriggerKeyName}。截图键：{_config.RegionCaptureKeyName}。检测区域数量：{regionCount}。";
     }
 
     private void UpdateThresholdDisplay()
@@ -3386,6 +3792,11 @@ public partial class AOUU : Form
             if (_audioFile is not null)
             {
                 _audioFile.Volume = Math.Clamp(_config.AudioVolume, 0f, 1f);
+            }
+
+            foreach (var playback in _oneShotAudioPlaybacks)
+            {
+                playback.AudioFile.Volume = Math.Clamp(_config.AudioVolume, 0f, 1f);
             }
         }
     }
@@ -3423,7 +3834,7 @@ public partial class AOUU : Form
         _imageHotkeyScanTimer.Stop();
         _imageHotkeyScanTimer.Tick -= ImageHotkeyScanTimer_Tick;
         _imageHotkeyScanTimer.Dispose();
-        _inputCaptureService.InputPressed -= InputCaptureService_InputPressed;
+        _inputCaptureService.InputBindingPressed -= InputCaptureService_InputBindingPressed;
         _inputCaptureService.Dispose();
         _healthBaselineService.Dispose();
         _templateMatcher.Dispose();
@@ -3444,6 +3855,8 @@ public partial class AOUU : Form
             return DisplayName;
         }
     }
+
+    private sealed record OneShotAudioPlayback(WaveOutEvent OutputDevice, AudioFileReader AudioFile);
 
     private sealed record TextRecognitionResult(bool Success, string Text, string ErrorMessage);
 

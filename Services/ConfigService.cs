@@ -13,6 +13,7 @@ public sealed class ConfigService
     private readonly string _configPath;
     private readonly string _appDirectoryConfigPath;
     private readonly string _legacyConfigPath;
+    private readonly string _bundledDefaultConfigPath;
     private readonly string _bundledDefaultTemplateDirectory;
     private readonly JsonSerializerOptions _serializerOptions = new()
     {
@@ -28,6 +29,7 @@ public sealed class ConfigService
         _configPath = Path.Combine(userDataDirectory, "config.json");
         _appDirectoryConfigPath = Path.Combine(baseDirectory, "config.json");
         _legacyConfigPath = Path.Combine(baseDirectory, "config.txt");
+        _bundledDefaultConfigPath = Path.Combine(baseDirectory, "assets", "default_config.json");
         _bundledDefaultTemplateDirectory = Path.Combine(baseDirectory, "templates", "defaults");
         TemplateDirectory = Path.Combine(userDataDirectory, "templates");
         DefaultTemplateDirectory = Path.Combine(TemplateDirectory, "defaults");
@@ -75,6 +77,7 @@ public sealed class ConfigService
         Directory.CreateDirectory(TemplateDirectory);
         Directory.CreateDirectory(DefaultTemplateDirectory);
         EnsureBundledDefaultTemplates();
+        EnsureUserConfigFromBundledPreset();
 
         if (TryLoadJson(_configPath, out var userConfig))
         {
@@ -109,6 +112,7 @@ public sealed class ConfigService
             ? lines[2]
             : TriggerMonitorService.GetKeyName(legacyConfig.TriggerKey);
         legacyConfig.RegionCaptureKeyName = TriggerMonitorService.GetKeyName(legacyConfig.RegionCaptureKey);
+        SyncLegacyHotkeyFields(legacyConfig);
 
         Save(legacyConfig);
         return legacyConfig;
@@ -148,6 +152,7 @@ public sealed class ConfigService
                 SimilarityThreshold = 0.85,
                 Hotkey = 0x77,
                 HotkeyName = "F8",
+                HotkeyInput = InputBindingService.FromLegacyHotkey(0x77),
                 CooldownSeconds = 5
             },
             ImageHotkeyTrigger = new ImageHotkeyTriggerConfig
@@ -156,7 +161,22 @@ public sealed class ConfigService
                 SimilarityThreshold = 0.85,
                 Hotkey = 0x7A,
                 HotkeyName = "F11",
+                HotkeyInput = InputBindingService.FromLegacyHotkey(0x7A),
                 CooldownSeconds = 5
+            },
+            KeyAudioTrigger = new KeyAudioTriggerConfig
+            {
+                Enabled = false,
+                CooldownSeconds = 1,
+                Key1 = 0x31,
+                Key1Name = "1",
+                Input1 = InputBindingService.FromLegacyHotkey(0x31),
+                Key2 = 0x32,
+                Key2Name = "2",
+                Input2 = InputBindingService.FromLegacyHotkey(0x32),
+                Key3 = 0x33,
+                Key3Name = "3",
+                Input3 = InputBindingService.FromLegacyHotkey(0x33)
             }
         };
     }
@@ -177,6 +197,17 @@ public sealed class ConfigService
         {
             File.Copy(sourcePath, destinationPath);
         }
+    }
+
+    private void EnsureUserConfigFromBundledPreset()
+    {
+        if (File.Exists(_configPath) || !File.Exists(_bundledDefaultConfigPath))
+        {
+            return;
+        }
+
+        Directory.CreateDirectory(Path.GetDirectoryName(_configPath)!);
+        File.Copy(_bundledDefaultConfigPath, _configPath);
     }
 
     private bool TryLoadJson(string path, out AppConfig config)
@@ -208,13 +239,17 @@ public sealed class ConfigService
     private AppConfig MapFromDto(AppConfigDto dto)
     {
         var config = CreateDefault();
-        config.AudioPath = dto.AudioPath ?? config.AudioPath;
+        config.AudioPath = ResolveConfiguredPath(dto.AudioPath) ?? config.AudioPath;
         config.AudioVolume = Math.Clamp(dto.AudioVolume, 0.0f, 1.0f);
         config.AudioOutputDeviceName = dto.AudioOutputDeviceName ?? string.Empty;
         config.TriggerKey = TriggerMonitorService.IsSupportedHotkey(dto.TriggerKey) ? dto.TriggerKey : 0x77;
-        config.TriggerKeyName = TriggerMonitorService.GetKeyName(config.TriggerKey);
+        config.TriggerInput = InputBindingService.Normalize(dto.TriggerInput, config.TriggerKey);
+        config.TriggerKey = config.TriggerInput.KeyCode;
+        config.TriggerKeyName = config.TriggerInput.DisplayName;
         config.RegionCaptureKey = TriggerMonitorService.IsSupportedHotkey(dto.RegionCaptureKey) ? dto.RegionCaptureKey : 0x79;
-        config.RegionCaptureKeyName = TriggerMonitorService.GetKeyName(config.RegionCaptureKey);
+        config.RegionCaptureInput = InputBindingService.Normalize(dto.RegionCaptureInput, config.RegionCaptureKey);
+        config.RegionCaptureKey = config.RegionCaptureInput.KeyCode;
+        config.RegionCaptureKeyName = config.RegionCaptureInput.DisplayName;
         config.HealthBaselineRefreshSeconds = Math.Clamp(dto.HealthBaselineRefreshSeconds, 5, 300);
         config.WatchWindowMs = Math.Clamp(dto.WatchWindowMs, 200, 10000);
         config.PollIntervalMs = Math.Clamp(dto.PollIntervalMs, 5, 1000);
@@ -256,7 +291,7 @@ public sealed class ConfigService
                     Enabled = textTriggerDto.Enabled,
                     Region = IsValidBounds(textTriggerDto.Region) ? textTriggerDto.Region : null,
                     Text = triggerText,
-                    MusicPath = textTriggerDto.MusicPath ?? string.Empty,
+                    MusicPath = ResolveConfiguredPath(textTriggerDto.MusicPath) ?? string.Empty,
                     ScanIntervalMs = Math.Clamp(textTriggerDto.ScanIntervalMs <= 0 ? 500 : textTriggerDto.ScanIntervalMs, 100, 10000),
                     CooldownSeconds = Math.Clamp(textTriggerDto.CooldownSeconds <= 0 ? 5 : textTriggerDto.CooldownSeconds, 1, 3600)
                 });
@@ -276,8 +311,14 @@ public sealed class ConfigService
         if (dto.UltHotkeyTrigger is not null)
         {
             config.UltHotkeyTrigger = MapImageHotkeyTriggerFromDto(dto.UltHotkeyTrigger, "大招");
-            config.TriggerKey = config.UltHotkeyTrigger.Hotkey;
-            config.TriggerKeyName = config.UltHotkeyTrigger.HotkeyName;
+            config.TriggerInput = config.UltHotkeyTrigger.HotkeyInput.Clone();
+            config.TriggerKey = config.TriggerInput.KeyCode;
+            config.TriggerKeyName = config.TriggerInput.DisplayName;
+        }
+
+        if (dto.KeyAudioTrigger is not null)
+        {
+            config.KeyAudioTrigger = MapKeyAudioTriggerFromDto(dto.KeyAudioTrigger);
         }
 
         if (dto.RegionCaptureHotkeys is not null)
@@ -302,14 +343,14 @@ public sealed class ConfigService
                     continue;
                 }
 
-                var readyTemplatePath = regionDto.ReadyTemplateImagePath;
+                var readyTemplatePath = ResolveConfiguredPath(regionDto.ReadyTemplateImagePath) ?? string.Empty;
                 if (string.Equals(Path.GetFileName(readyTemplatePath), Path.GetFileName(DefaultSkillReadyTemplatePath), StringComparison.OrdinalIgnoreCase) &&
                     File.Exists(DefaultSkillReadyTemplatePath))
                 {
                     readyTemplatePath = DefaultSkillReadyTemplatePath;
                 }
 
-                var emptyTemplatePath = regionDto.EmptyTemplateImagePath ?? string.Empty;
+                var emptyTemplatePath = ResolveConfiguredPath(regionDto.EmptyTemplateImagePath) ?? string.Empty;
                 if (!string.IsNullOrWhiteSpace(emptyTemplatePath) &&
                     string.Equals(Path.GetFileName(emptyTemplatePath), Path.GetFileName(DefaultSkillEmptyTemplatePath), StringComparison.OrdinalIgnoreCase) &&
                     File.Exists(DefaultSkillEmptyTemplatePath))
@@ -338,7 +379,7 @@ public sealed class ConfigService
                     1,
                     20);
 
-                var healthTemplatePath = regionDto.TemplateImagePath ?? string.Empty;
+                var healthTemplatePath = ResolveConfiguredPath(regionDto.TemplateImagePath) ?? string.Empty;
                 if (!string.IsNullOrWhiteSpace(healthTemplatePath) &&
                     string.Equals(Path.GetFileName(healthTemplatePath), Path.GetFileName(DefaultHealthTemplatePath), StringComparison.OrdinalIgnoreCase) &&
                     File.Exists(DefaultHealthTemplatePath))
@@ -364,6 +405,8 @@ public sealed class ConfigService
             MigrateLegacyUltTrigger(config);
         }
 
+        SyncLegacyHotkeyFields(config);
+
         return config;
     }
 
@@ -376,8 +419,10 @@ public sealed class ConfigService
             AudioOutputDeviceName = config.AudioOutputDeviceName,
             TriggerKey = config.TriggerKey,
             TriggerKeyName = config.TriggerKeyName,
+            TriggerInput = config.TriggerInput,
             RegionCaptureKey = config.RegionCaptureKey,
             RegionCaptureKeyName = config.RegionCaptureKeyName,
+            RegionCaptureInput = config.RegionCaptureInput,
             HealthBaselineRefreshSeconds = config.HealthBaselineRefreshSeconds,
             WatchWindowMs = config.WatchWindowMs,
             PollIntervalMs = config.PollIntervalMs,
@@ -394,6 +439,7 @@ public sealed class ConfigService
             }).ToList(),
             UltHotkeyTrigger = MapImageHotkeyTriggerToDto(config.UltHotkeyTrigger),
             ImageHotkeyTrigger = MapImageHotkeyTriggerToDto(config.ImageHotkeyTrigger),
+            KeyAudioTrigger = MapKeyAudioTriggerToDto(config.KeyAudioTrigger),
             RegionCaptureHotkeys = MapRegionCaptureHotkeysToDto(config.RegionCaptureHotkeys),
             Regions = config.Regions.Select(region =>
             {
@@ -428,16 +474,69 @@ public sealed class ConfigService
         };
     }
 
+    private static KeyAudioTriggerConfig MapKeyAudioTriggerFromDto(KeyAudioTriggerDto dto)
+    {
+        var config = new KeyAudioTriggerConfig
+        {
+            Enabled = dto.Enabled,
+            CooldownSeconds = Math.Clamp(dto.CooldownSeconds <= 0 ? 1 : dto.CooldownSeconds, 1, 3600),
+            Key1 = TriggerMonitorService.IsSupportedHotkey(dto.Key1) ? dto.Key1 : 0x31,
+            Input1 = InputBindingService.Normalize(dto.Input1, TriggerMonitorService.IsSupportedHotkey(dto.Key1) ? dto.Key1 : 0x31),
+            AudioPath1 = ResolveConfiguredPath(dto.AudioPath1) ?? string.Empty,
+            Key2 = TriggerMonitorService.IsSupportedHotkey(dto.Key2) ? dto.Key2 : 0x32,
+            Input2 = InputBindingService.Normalize(dto.Input2, TriggerMonitorService.IsSupportedHotkey(dto.Key2) ? dto.Key2 : 0x32),
+            AudioPath2 = ResolveConfiguredPath(dto.AudioPath2) ?? string.Empty,
+            Key3 = TriggerMonitorService.IsSupportedHotkey(dto.Key3) ? dto.Key3 : 0x33,
+            Input3 = InputBindingService.Normalize(dto.Input3, TriggerMonitorService.IsSupportedHotkey(dto.Key3) ? dto.Key3 : 0x33),
+            AudioPath3 = ResolveConfiguredPath(dto.AudioPath3) ?? string.Empty
+        };
+
+        config.Key1 = config.Input1.KeyCode;
+        config.Key1Name = config.Input1.DisplayName;
+        config.Key2 = config.Input2.KeyCode;
+        config.Key2Name = config.Input2.DisplayName;
+        config.Key3 = config.Input3.KeyCode;
+        config.Key3Name = config.Input3.DisplayName;
+        return config;
+    }
+
+    private static KeyAudioTriggerDto MapKeyAudioTriggerToDto(KeyAudioTriggerConfig config)
+    {
+        return new KeyAudioTriggerDto
+        {
+            Enabled = config.Enabled,
+            CooldownSeconds = config.CooldownSeconds,
+            Key1 = config.Key1,
+            Key1Name = config.Key1Name,
+            Input1 = config.Input1,
+            AudioPath1 = config.AudioPath1,
+            Key2 = config.Key2,
+            Key2Name = config.Key2Name,
+            Input2 = config.Input2,
+            AudioPath2 = config.AudioPath2,
+            Key3 = config.Key3,
+            Key3Name = config.Key3Name,
+            Input3 = config.Input3,
+            AudioPath3 = config.AudioPath3
+        };
+    }
+
     private static RegionCaptureHotkeysConfig MapRegionCaptureHotkeysFromDto(RegionCaptureHotkeysDto dto)
     {
         var hotkeys = new RegionCaptureHotkeysConfig();
         hotkeys.SkillRegionKey = TriggerMonitorService.IsSupportedHotkey(dto.SkillRegionKey) ? dto.SkillRegionKey : 0x75;
-        hotkeys.SkillRegionKeyName = TriggerMonitorService.GetKeyName(hotkeys.SkillRegionKey);
+        hotkeys.SkillRegionInput = InputBindingService.Normalize(dto.SkillRegionInput, hotkeys.SkillRegionKey);
+        hotkeys.SkillRegionKey = hotkeys.SkillRegionInput.KeyCode;
+        hotkeys.SkillRegionKeyName = hotkeys.SkillRegionInput.DisplayName;
         hotkeys.HealthRegionKey = TriggerMonitorService.IsSupportedHotkey(dto.HealthRegionKey) ? dto.HealthRegionKey : 0x76;
-        hotkeys.HealthRegionKeyName = TriggerMonitorService.GetKeyName(hotkeys.HealthRegionKey);
+        hotkeys.HealthRegionInput = InputBindingService.Normalize(dto.HealthRegionInput, hotkeys.HealthRegionKey);
+        hotkeys.HealthRegionKey = hotkeys.HealthRegionInput.KeyCode;
+        hotkeys.HealthRegionKeyName = hotkeys.HealthRegionInput.DisplayName;
         var ocrTextRegionKey = dto.OcrTextRegionKey != 0 ? dto.OcrTextRegionKey : dto.DeathTextRegionKey;
         hotkeys.OcrTextRegionKey = TriggerMonitorService.IsSupportedHotkey(ocrTextRegionKey) ? ocrTextRegionKey : 0x78;
-        hotkeys.OcrTextRegionKeyName = TriggerMonitorService.GetKeyName(hotkeys.OcrTextRegionKey);
+        hotkeys.OcrTextRegionInput = InputBindingService.Normalize(dto.OcrTextRegionInput, hotkeys.OcrTextRegionKey);
+        hotkeys.OcrTextRegionKey = hotkeys.OcrTextRegionInput.KeyCode;
+        hotkeys.OcrTextRegionKeyName = hotkeys.OcrTextRegionInput.DisplayName;
         return hotkeys;
     }
 
@@ -447,26 +546,31 @@ public sealed class ConfigService
         {
             SkillRegionKey = config.SkillRegionKey,
             SkillRegionKeyName = config.SkillRegionKeyName,
+            SkillRegionInput = config.SkillRegionInput,
             HealthRegionKey = config.HealthRegionKey,
             HealthRegionKeyName = config.HealthRegionKeyName,
+            HealthRegionInput = config.HealthRegionInput,
             OcrTextRegionKey = config.OcrTextRegionKey,
-            OcrTextRegionKeyName = config.OcrTextRegionKeyName
+            OcrTextRegionKeyName = config.OcrTextRegionKeyName,
+            OcrTextRegionInput = config.OcrTextRegionInput
         };
     }
 
     private static ImageHotkeyTriggerConfig MapImageHotkeyTriggerFromDto(ImageHotkeyTriggerDto dto, string defaultEntryNamePrefix)
     {
         var hotkey = TriggerMonitorService.IsSupportedHotkey(dto.Hotkey) ? dto.Hotkey : 0x7A;
+        var hotkeyInput = InputBindingService.Normalize(dto.HotkeyInput, hotkey);
         var config = new ImageHotkeyTriggerConfig
         {
             Enabled = dto.Enabled,
             Region = IsValidBounds(dto.Region) ? dto.Region : null,
-            TemplateImagePath = dto.TemplateImagePath ?? string.Empty,
+            TemplateImagePath = ResolveConfiguredPath(dto.TemplateImagePath) ?? string.Empty,
             SimilarityThreshold = Math.Clamp(dto.SimilarityThreshold <= 0 ? 0.85 : dto.SimilarityThreshold, 0.1, 1.0),
             SelectedSkillIndex = Math.Max(0, dto.SelectedSkillIndex),
-            Hotkey = hotkey,
-            HotkeyName = TriggerMonitorService.GetKeyName(hotkey),
-            AudioPath = dto.AudioPath ?? string.Empty,
+            Hotkey = hotkeyInput.KeyCode,
+            HotkeyName = hotkeyInput.DisplayName,
+            HotkeyInput = hotkeyInput,
+            AudioPath = ResolveConfiguredPath(dto.AudioPath) ?? string.Empty,
             ScanIntervalMs = Math.Clamp(dto.ScanIntervalMs <= 0 ? 200 : dto.ScanIntervalMs, 100, 10000),
             CooldownSeconds = Math.Clamp(dto.CooldownSeconds <= 0 ? 5 : dto.CooldownSeconds, 1, 3600)
         };
@@ -517,6 +621,7 @@ public sealed class ConfigService
             SimilarityThreshold = firstSkill?.SimilarityThreshold ?? config.SimilarityThreshold,
             Hotkey = config.Hotkey,
             HotkeyName = config.HotkeyName,
+            HotkeyInput = config.HotkeyInput,
             AudioPath = firstSkill?.AudioPath ?? config.AudioPath,
             ScanIntervalMs = config.ScanIntervalMs,
             CooldownSeconds = config.CooldownSeconds
@@ -528,8 +633,8 @@ public sealed class ConfigService
         return new ImageHotkeySkillConfig
         {
             Name = string.IsNullOrWhiteSpace(dto.Name) ? $"{defaultEntryNamePrefix} {index}" : dto.Name.Trim(),
-            TemplateImagePath = dto.TemplateImagePath ?? string.Empty,
-            AudioPath = dto.AudioPath ?? string.Empty,
+            TemplateImagePath = ResolveConfiguredPath(dto.TemplateImagePath) ?? string.Empty,
+            AudioPath = ResolveConfiguredPath(dto.AudioPath) ?? string.Empty,
             SimilarityThreshold = Math.Clamp(dto.SimilarityThreshold <= 0 ? 0.85 : dto.SimilarityThreshold, 0.1, 1.0)
         };
     }
@@ -556,8 +661,9 @@ public sealed class ConfigService
 
         config.UltHotkeyTrigger.Enabled = false;
         config.UltHotkeyTrigger.Region = skillRegion?.Bounds;
-        config.UltHotkeyTrigger.Hotkey = config.TriggerKey;
-        config.UltHotkeyTrigger.HotkeyName = config.TriggerKeyName;
+        config.UltHotkeyTrigger.HotkeyInput = config.TriggerInput.Clone();
+        config.UltHotkeyTrigger.Hotkey = config.TriggerInput.KeyCode;
+        config.UltHotkeyTrigger.HotkeyName = config.TriggerInput.DisplayName;
         config.UltHotkeyTrigger.CooldownSeconds = 5;
         config.UltHotkeyTrigger.SelectedSkillIndex = 0;
 
@@ -594,12 +700,66 @@ public sealed class ConfigService
 
         if (!string.IsNullOrWhiteSpace(dto.DeathMusicPath))
         {
-            trigger.MusicPath = dto.DeathMusicPath;
+            trigger.MusicPath = ResolveConfiguredPath(dto.DeathMusicPath) ?? string.Empty;
         }
 
         trigger.Text = string.IsNullOrWhiteSpace(trigger.Text) ? "YOU DIED" : trigger.Text;
         trigger.ScanIntervalMs = Math.Clamp(dto.ScanIntervalMs <= 0 ? trigger.ScanIntervalMs : dto.ScanIntervalMs, 100, 10000);
         trigger.CooldownSeconds = Math.Clamp(dto.CooldownSeconds <= 0 ? trigger.CooldownSeconds : dto.CooldownSeconds, 1, 3600);
+    }
+
+    private static void SyncLegacyHotkeyFields(AppConfig config)
+    {
+        config.TriggerInput = InputBindingService.Normalize(config.TriggerInput, config.TriggerKey);
+        config.TriggerKey = config.TriggerInput.KeyCode;
+        config.TriggerKeyName = config.TriggerInput.DisplayName;
+
+        config.RegionCaptureInput = InputBindingService.Normalize(config.RegionCaptureInput, config.RegionCaptureKey);
+        config.RegionCaptureKey = config.RegionCaptureInput.KeyCode;
+        config.RegionCaptureKeyName = config.RegionCaptureInput.DisplayName;
+
+        config.UltHotkeyTrigger.HotkeyInput = InputBindingService.Normalize(config.UltHotkeyTrigger.HotkeyInput, config.TriggerKey);
+        config.UltHotkeyTrigger.Hotkey = config.UltHotkeyTrigger.HotkeyInput.KeyCode;
+        config.UltHotkeyTrigger.HotkeyName = config.UltHotkeyTrigger.HotkeyInput.DisplayName;
+
+        config.ImageHotkeyTrigger.HotkeyInput = InputBindingService.Normalize(config.ImageHotkeyTrigger.HotkeyInput, config.ImageHotkeyTrigger.Hotkey);
+        config.ImageHotkeyTrigger.Hotkey = config.ImageHotkeyTrigger.HotkeyInput.KeyCode;
+        config.ImageHotkeyTrigger.HotkeyName = config.ImageHotkeyTrigger.HotkeyInput.DisplayName;
+
+        config.KeyAudioTrigger.Input1 = InputBindingService.Normalize(config.KeyAudioTrigger.Input1, config.KeyAudioTrigger.Key1);
+        config.KeyAudioTrigger.Key1 = config.KeyAudioTrigger.Input1.KeyCode;
+        config.KeyAudioTrigger.Key1Name = config.KeyAudioTrigger.Input1.DisplayName;
+        config.KeyAudioTrigger.Input2 = InputBindingService.Normalize(config.KeyAudioTrigger.Input2, config.KeyAudioTrigger.Key2);
+        config.KeyAudioTrigger.Key2 = config.KeyAudioTrigger.Input2.KeyCode;
+        config.KeyAudioTrigger.Key2Name = config.KeyAudioTrigger.Input2.DisplayName;
+        config.KeyAudioTrigger.Input3 = InputBindingService.Normalize(config.KeyAudioTrigger.Input3, config.KeyAudioTrigger.Key3);
+        config.KeyAudioTrigger.Key3 = config.KeyAudioTrigger.Input3.KeyCode;
+        config.KeyAudioTrigger.Key3Name = config.KeyAudioTrigger.Input3.DisplayName;
+
+        config.RegionCaptureHotkeys.SkillRegionInput = InputBindingService.Normalize(config.RegionCaptureHotkeys.SkillRegionInput, config.RegionCaptureHotkeys.SkillRegionKey);
+        config.RegionCaptureHotkeys.SkillRegionKey = config.RegionCaptureHotkeys.SkillRegionInput.KeyCode;
+        config.RegionCaptureHotkeys.SkillRegionKeyName = config.RegionCaptureHotkeys.SkillRegionInput.DisplayName;
+        config.RegionCaptureHotkeys.HealthRegionInput = InputBindingService.Normalize(config.RegionCaptureHotkeys.HealthRegionInput, config.RegionCaptureHotkeys.HealthRegionKey);
+        config.RegionCaptureHotkeys.HealthRegionKey = config.RegionCaptureHotkeys.HealthRegionInput.KeyCode;
+        config.RegionCaptureHotkeys.HealthRegionKeyName = config.RegionCaptureHotkeys.HealthRegionInput.DisplayName;
+        config.RegionCaptureHotkeys.OcrTextRegionInput = InputBindingService.Normalize(config.RegionCaptureHotkeys.OcrTextRegionInput, config.RegionCaptureHotkeys.OcrTextRegionKey);
+        config.RegionCaptureHotkeys.OcrTextRegionKey = config.RegionCaptureHotkeys.OcrTextRegionInput.KeyCode;
+        config.RegionCaptureHotkeys.OcrTextRegionKeyName = config.RegionCaptureHotkeys.OcrTextRegionInput.DisplayName;
+    }
+
+    private static string? ResolveConfiguredPath(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return path;
+        }
+
+        if (Path.IsPathRooted(path))
+        {
+            return path;
+        }
+
+        return Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, path.Replace('/', Path.DirectorySeparatorChar)));
     }
 
     private static bool IsValidBounds(ScreenBounds? bounds)
@@ -619,9 +779,13 @@ public sealed class ConfigService
 
         public string? TriggerKeyName { get; set; }
 
+        public InputBinding? TriggerInput { get; set; }
+
         public int RegionCaptureKey { get; set; }
 
         public string? RegionCaptureKeyName { get; set; }
+
+        public InputBinding? RegionCaptureInput { get; set; }
 
         public int HealthBaselineRefreshSeconds { get; set; } = 30;
 
@@ -639,6 +803,8 @@ public sealed class ConfigService
 
         public ImageHotkeyTriggerDto? ImageHotkeyTrigger { get; set; }
 
+        public KeyAudioTriggerDto? KeyAudioTrigger { get; set; }
+
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public DeathTriggerDto? DeathTrigger { get; set; }
 
@@ -647,19 +813,56 @@ public sealed class ConfigService
         public List<WatchRegionDto>? Regions { get; set; }
     }
 
+    private sealed class KeyAudioTriggerDto
+    {
+        public bool Enabled { get; set; }
+
+        public int CooldownSeconds { get; set; } = 1;
+
+        public int Key1 { get; set; } = 0x31;
+
+        public string? Key1Name { get; set; }
+
+        public InputBinding? Input1 { get; set; }
+
+        public string? AudioPath1 { get; set; }
+
+        public int Key2 { get; set; } = 0x32;
+
+        public string? Key2Name { get; set; }
+
+        public InputBinding? Input2 { get; set; }
+
+        public string? AudioPath2 { get; set; }
+
+        public int Key3 { get; set; } = 0x33;
+
+        public string? Key3Name { get; set; }
+
+        public InputBinding? Input3 { get; set; }
+
+        public string? AudioPath3 { get; set; }
+    }
+
     private sealed class RegionCaptureHotkeysDto
     {
         public int SkillRegionKey { get; set; } = 0x75;
 
         public string? SkillRegionKeyName { get; set; }
 
+        public InputBinding? SkillRegionInput { get; set; }
+
         public int HealthRegionKey { get; set; } = 0x76;
 
         public string? HealthRegionKeyName { get; set; }
 
+        public InputBinding? HealthRegionInput { get; set; }
+
         public int OcrTextRegionKey { get; set; } = 0x78;
 
         public string? OcrTextRegionKeyName { get; set; }
+
+        public InputBinding? OcrTextRegionInput { get; set; }
 
         // Legacy name kept only so old configs can migrate to OcrTextRegionKey.
         public int DeathTextRegionKey { get; set; } = 0x78;
@@ -717,6 +920,8 @@ public sealed class ConfigService
         public int Hotkey { get; set; } = 0x7A;
 
         public string? HotkeyName { get; set; }
+
+        public InputBinding? HotkeyInput { get; set; }
 
         public string? AudioPath { get; set; }
 
