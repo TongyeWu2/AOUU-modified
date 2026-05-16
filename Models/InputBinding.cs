@@ -27,6 +27,8 @@ public sealed class InputBinding
 
     public List<int> GamepadKeyCodes { get; set; } = [];
 
+    public List<int> KeyboardModifierKeyCodes { get; set; } = [];
+
     public KeyboardModifiers Modifiers { get; set; }
 
     public string DisplayName { get; set; } = string.Empty;
@@ -38,6 +40,7 @@ public sealed class InputBinding
             Kind = Kind,
             KeyCode = KeyCode,
             GamepadKeyCodes = GamepadKeyCodes.ToList(),
+            KeyboardModifierKeyCodes = KeyboardModifierKeyCodes.ToList(),
             Modifiers = Modifiers,
             DisplayName = DisplayName
         };

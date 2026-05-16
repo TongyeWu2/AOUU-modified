@@ -27,6 +27,15 @@ public sealed class TriggerMonitorService : IDisposable
     private const int GamepadLeftTrigger = GamepadCodeBase + 15;
     private const int GamepadRightTrigger = GamepadCodeBase + 16;
     private const byte TriggerThreshold = 128;
+    private const int CtrlKey = 0x11;
+    private const int AltKey = 0x12;
+    private const int ShiftKey = 0x10;
+    private const int LeftCtrlKey = 0xA2;
+    private const int RightCtrlKey = 0xA3;
+    private const int LeftAltKey = 0xA4;
+    private const int RightAltKey = 0xA5;
+    private const int LeftShiftKey = 0xA0;
+    private const int RightShiftKey = 0xA1;
 
     private const ushort XInputGamepadDPadUp = 0x0001;
     private const ushort XInputGamepadDPadDown = 0x0002;
@@ -109,13 +118,38 @@ public sealed class TriggerMonitorService : IDisposable
     {
         var pressedKeys = new HashSet<int>();
 
+        pressedKeys.UnionWith(GetPressedKeyboardAndMouseKeys());
+
+        pressedKeys.UnionWith(GetPressedGamepadKeys());
+        return pressedKeys;
+    }
+
+    public static HashSet<int> GetPressedKeyboardAndMouseKeys()
+    {
+        var pressedKeys = new HashSet<int>();
         foreach (var candidate in EnumeratePressedKeyboardAndMouseKeys())
         {
             pressedKeys.Add(candidate);
         }
 
-        pressedKeys.UnionWith(GetPressedGamepadKeys());
+        pressedKeys.UnionWith(GlobalInputHookService.GetPressedKeyboardKeys());
         return pressedKeys;
+    }
+
+    public static HashSet<int> GetAsyncPressedKeyboardAndMouseKeys()
+    {
+        var pressedKeys = new HashSet<int>();
+        foreach (var candidate in EnumeratePressedKeyboardAndMouseKeys())
+        {
+            pressedKeys.Add(candidate);
+        }
+
+        return pressedKeys;
+    }
+
+    public static HashSet<int> GetHookPressedKeyboardKeys()
+    {
+        return GlobalInputHookService.GetPressedKeyboardKeys();
     }
 
     public static HashSet<int> GetPressedGamepadKeys()
@@ -150,6 +184,7 @@ public sealed class TriggerMonitorService : IDisposable
             0x10 => "Shift",
             0x11 => "Ctrl",
             0x12 => "Alt",
+            0x14 => "Caps Lock",
             0x1B => "Esc",
             0x20 => "Space",
             0x25 => "方向键左",
@@ -213,16 +248,33 @@ public sealed class TriggerMonitorService : IDisposable
 
     private void Timer_Tick(object? sender, EventArgs e)
     {
-        var binding = InputBindingService.IsSupported(TriggerBinding)
-            ? TriggerBinding
-            : InputBindingService.FromLegacyHotkey(TriggerKey);
-        var isPressed = InputBindingService.IsPressed(binding);
+        var isPressed = IsConfiguredHotkeyPressed();
         if (isPressed && !_wasPressed)
         {
             Triggered?.Invoke(this, EventArgs.Empty);
         }
 
         _wasPressed = isPressed;
+    }
+
+    private bool IsConfiguredHotkeyPressed()
+    {
+        if (!InputBindingService.IsSupported(TriggerBinding))
+        {
+            return IsHotkeyPressed(TriggerKey);
+        }
+
+        if (TriggerBinding.Kind == InputBindingKind.Gamepad)
+        {
+            return InputBindingService.IsPressed(TriggerBinding);
+        }
+
+        if (TriggerBinding.Modifiers != KeyboardModifiers.None)
+        {
+            return InputBindingService.IsPressed(TriggerBinding);
+        }
+
+        return IsHotkeyPressed(TriggerBinding.KeyCode != 0 ? TriggerBinding.KeyCode : TriggerKey);
     }
 
     private static IEnumerable<int> EnumeratePressedKeyboardAndMouseKeys()
@@ -252,6 +304,34 @@ public sealed class TriggerMonitorService : IDisposable
         }
 
         return false;
+    }
+
+    private static bool IsHotkeyPressed(int keyCode)
+    {
+        if (TryGetGamepadKeyName(keyCode, out _))
+        {
+            return IsGamepadKeyPressed(keyCode);
+        }
+
+        return keyCode switch
+        {
+            ShiftKey => IsKeyboardKeyDown(ShiftKey) || IsKeyboardKeyDown(LeftShiftKey) || IsKeyboardKeyDown(RightShiftKey),
+            CtrlKey => IsKeyboardKeyDown(CtrlKey) || IsKeyboardKeyDown(LeftCtrlKey) || IsKeyboardKeyDown(RightCtrlKey),
+            AltKey => IsKeyboardKeyDown(AltKey) || IsKeyboardKeyDown(LeftAltKey) || IsKeyboardKeyDown(RightAltKey),
+            LeftShiftKey => IsKeyboardKeyDown(LeftShiftKey) || (!IsKeyboardKeyDown(RightShiftKey) && IsKeyboardKeyDown(ShiftKey)),
+            RightShiftKey => IsKeyboardKeyDown(RightShiftKey) || (!IsKeyboardKeyDown(LeftShiftKey) && IsKeyboardKeyDown(ShiftKey)),
+            LeftCtrlKey => IsKeyboardKeyDown(LeftCtrlKey) || (!IsKeyboardKeyDown(RightCtrlKey) && IsKeyboardKeyDown(CtrlKey)),
+            RightCtrlKey => IsKeyboardKeyDown(RightCtrlKey) || (!IsKeyboardKeyDown(LeftCtrlKey) && IsKeyboardKeyDown(CtrlKey)),
+            LeftAltKey => IsKeyboardKeyDown(LeftAltKey) || (!IsKeyboardKeyDown(RightAltKey) && IsKeyboardKeyDown(AltKey)),
+            RightAltKey => IsKeyboardKeyDown(RightAltKey) || (!IsKeyboardKeyDown(LeftAltKey) && IsKeyboardKeyDown(AltKey)),
+            _ => IsKeyboardKeyDown(keyCode)
+        };
+    }
+
+    private static bool IsKeyboardKeyDown(int keyCode)
+    {
+        return (GetAsyncKeyState(keyCode) & 0x8000) != 0 ||
+               GlobalInputHookService.GetPressedKeyboardKeys().Contains(keyCode);
     }
 
     private static IEnumerable<XInputState> EnumerateConnectedGamepadStates()

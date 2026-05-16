@@ -2300,11 +2300,13 @@ public partial class AOUU : Form
         var trigger = _config.UltHotkeyTrigger;
         if (!trigger.Enabled)
         {
+            InputDebugLogger.LogTriggerDecision("Ultimate hotkey audio decision", trigger.HotkeyInput, $"configured=0x{trigger.HotkeyInput.KeyCode:X2}", true, false, false, false, false, "ultimate trigger disabled");
             return;
         }
 
         if (trigger.Region is null || trigger.Region.Width <= 0 || trigger.Region.Height <= 0)
         {
+            InputDebugLogger.LogTriggerDecision("Ultimate hotkey audio decision", trigger.HotkeyInput, $"configured=0x{trigger.HotkeyInput.KeyCode:X2}", true, false, false, false, false, "ultimate rejected: missing region");
             SetStatus("大招音效缺少检测区域。");
             return;
         }
@@ -2312,12 +2314,14 @@ public partial class AOUU : Form
         var selectedUlt = GetActiveUltHotkeySkill();
         if (selectedUlt is null)
         {
+            InputDebugLogger.LogTriggerDecision("Ultimate hotkey audio decision", trigger.HotkeyInput, $"configured=0x{trigger.HotkeyInput.KeyCode:X2}", true, false, false, false, false, "ultimate rejected: no active skill");
             SetStatus("大招音效未选择可用的大招。");
             return;
         }
 
         if (!_ultHotkeyMatched || _matchedUltHotkeySkill is null)
         {
+            InputDebugLogger.LogTriggerDecision("Ultimate hotkey audio decision", trigger.HotkeyInput, $"configured=0x{trigger.HotkeyInput.KeyCode:X2}", true, false, false, false, false, $"ultimate rejected: no current template match; score={_lastUltHotkeyScore:0.###}");
             SetStatus($"大招触发按键已按下，但大招未匹配。当前大招匹配度：{_lastUltHotkeyScore:0.###}");
             return;
         }
@@ -2326,6 +2330,7 @@ public partial class AOUU : Form
         var cooldown = TimeSpan.FromSeconds(Math.Clamp(trigger.CooldownSeconds, 1, 3600));
         if (now - _lastUltHotkeyTriggerUtc < cooldown)
         {
+            InputDebugLogger.LogTriggerDecision("Ultimate hotkey audio decision", trigger.HotkeyInput, $"configured=0x{trigger.HotkeyInput.KeyCode:X2}", true, false, true, false, false, "ultimate rejected: cooldown");
             SetStatus($"大招音效冷却中。当前大招匹配度：{_lastUltHotkeyScore:0.###}");
             return;
         }
@@ -2333,17 +2338,20 @@ public partial class AOUU : Form
         var matchedUlt = _matchedUltHotkeySkill;
         if (string.IsNullOrWhiteSpace(matchedUlt.AudioPath) || !File.Exists(matchedUlt.AudioPath))
         {
+            InputDebugLogger.LogTriggerDecision("Ultimate hotkey audio decision", trigger.HotkeyInput, $"configured=0x{trigger.HotkeyInput.KeyCode:X2}", true, false, false, false, false, "ultimate rejected: audio file missing");
             SetStatus($"大招“{matchedUlt.Name}”的音效文件不存在：{matchedUlt.AudioPath}");
             return;
         }
 
         if (!PlayAudioPath(matchedUlt.AudioPath, out var playbackMessage))
         {
+            InputDebugLogger.LogTriggerDecision("Ultimate hotkey audio decision", trigger.HotkeyInput, $"configured=0x{trigger.HotkeyInput.KeyCode:X2}", true, false, false, false, false, $"ultimate rejected: playback failed: {playbackMessage}");
             SetStatus(playbackMessage);
             return;
         }
 
         _lastUltHotkeyTriggerUtc = now;
+        InputDebugLogger.LogTriggerDecision("Ultimate hotkey audio decision", trigger.HotkeyInput, $"configured=0x{trigger.HotkeyInput.KeyCode:X2}", true, false, false, false, true, "ultimate triggered");
         SetStatus($"大招“{matchedUlt.Name}”匹配且按键命中，已播放大招音效。大招匹配度：{_lastUltHotkeyScore:0.###}");
     }
 
@@ -2447,31 +2455,46 @@ public partial class AOUU : Form
     private void HandleImageHotkeyPressed(InputBinding binding)
     {
         var trigger = _config.ImageHotkeyTrigger;
-        if (!trigger.Enabled || !InputBindingService.Matches(trigger.HotkeyInput, binding))
+        var matchesHotkey = InputBindingService.Matches(trigger.HotkeyInput, binding);
+        if (!trigger.Enabled || !matchesHotkey)
         {
+            InputDebugLogger.LogTriggerDecision(
+                "Image hotkey event path",
+                trigger.HotkeyInput,
+                $"configured=0x{trigger.HotkeyInput.KeyCode:X2}; incoming=0x{binding.KeyCode:X2}",
+                matchesHotkey,
+                wasPressed: false,
+                cooldownBlocked: false,
+                edgeBlocked: false,
+                willTrigger: false,
+                !trigger.Enabled ? "image hotkey trigger disabled" : $"incoming binding did not match: {binding.DisplayName}");
             return;
         }
 
         if (!InputBindingService.IsSupported(trigger.HotkeyInput))
         {
+            InputDebugLogger.LogTriggerDecision("Image hotkey event path", trigger.HotkeyInput, $"configured=0x{trigger.HotkeyInput.KeyCode:X2}", false, false, false, false, false, "configured image hotkey unsupported");
             SetStatus("战技音效未配置有效按键。");
             return;
         }
 
         if (trigger.Region is null || trigger.Region.Width <= 0 || trigger.Region.Height <= 0)
         {
+            InputDebugLogger.LogTriggerDecision("Image hotkey event path", trigger.HotkeyInput, $"configured=0x{trigger.HotkeyInput.KeyCode:X2}", true, false, false, false, false, "image hotkey rejected: missing region");
             SetStatus("战技音效缺少检测区域。");
             return;
         }
 
         if (trigger.Skills.Count == 0)
         {
+            InputDebugLogger.LogTriggerDecision("Image hotkey event path", trigger.HotkeyInput, $"configured=0x{trigger.HotkeyInput.KeyCode:X2}", true, false, false, false, false, "image hotkey rejected: no skills");
             SetStatus("战技音效未配置任何战技。");
             return;
         }
 
         if (!_imageHotkeyMatched || _matchedImageHotkeySkill is null)
         {
+            InputDebugLogger.LogTriggerDecision("Image hotkey event path", trigger.HotkeyInput, $"configured=0x{trigger.HotkeyInput.KeyCode:X2}", true, false, false, false, false, $"image hotkey rejected: no current template match; score={_lastImageHotkeyScore:0.###}");
             SetStatus($"战技触发按键已按下，但战技未匹配。当前战技匹配度：{_lastImageHotkeyScore:0.###}");
             return;
         }
@@ -2480,6 +2503,7 @@ public partial class AOUU : Form
         var cooldown = TimeSpan.FromSeconds(Math.Clamp(trigger.CooldownSeconds, 1, 3600));
         if (now - _lastImageHotkeyTriggerUtc < cooldown)
         {
+            InputDebugLogger.LogTriggerDecision("Image hotkey event path", trigger.HotkeyInput, $"configured=0x{trigger.HotkeyInput.KeyCode:X2}", true, false, true, false, false, "image hotkey rejected: cooldown");
             SetStatus($"战技音效冷却中。当前战技匹配度：{_lastImageHotkeyScore:0.###}");
             return;
         }
@@ -2487,17 +2511,20 @@ public partial class AOUU : Form
         var matchedSkill = _matchedImageHotkeySkill;
         if (string.IsNullOrWhiteSpace(matchedSkill.AudioPath) || !File.Exists(matchedSkill.AudioPath))
         {
+            InputDebugLogger.LogTriggerDecision("Image hotkey event path", trigger.HotkeyInput, $"configured=0x{trigger.HotkeyInput.KeyCode:X2}", true, false, false, false, false, "image hotkey rejected: audio file missing");
             SetStatus($"战技“{matchedSkill.Name}”的音效文件不存在：{matchedSkill.AudioPath}");
             return;
         }
 
         if (!PlayAudioPath(matchedSkill.AudioPath, out var playbackMessage))
         {
+            InputDebugLogger.LogTriggerDecision("Image hotkey event path", trigger.HotkeyInput, $"configured=0x{trigger.HotkeyInput.KeyCode:X2}", true, false, false, false, false, $"image hotkey rejected: playback failed: {playbackMessage}");
             SetStatus(playbackMessage);
             return;
         }
 
         _lastImageHotkeyTriggerUtc = now;
+        InputDebugLogger.LogTriggerDecision("Image hotkey event path", trigger.HotkeyInput, $"configured=0x{trigger.HotkeyInput.KeyCode:X2}", true, false, false, false, true, "image hotkey triggered");
         SetStatus($"战技“{matchedSkill.Name}”匹配且按键命中，已播放战技音效。战技匹配度：{_lastImageHotkeyScore:0.###}");
     }
 
@@ -2505,6 +2532,7 @@ public partial class AOUU : Form
     {
         if (_isConfiguringKey || _isRecognitionRunning || _isRegionCaptureRunning)
         {
+            InputDebugLogger.LogMessage("Ultimate hotkey monitor triggered but UI gate rejected it: configuring/recognition/region-capture active.");
             return;
         }
 
@@ -2569,39 +2597,57 @@ public partial class AOUU : Form
         var trigger = _config.KeyAudioTrigger;
         if (!trigger.Enabled || _isConfiguringKey)
         {
+            InputDebugLogger.LogTriggerDecision(
+                "Key audio event path",
+                trigger.Input1,
+                $"incoming=0x{binding.KeyCode:X2}",
+                false,
+                wasPressed: false,
+                cooldownBlocked: false,
+                edgeBlocked: false,
+                willTrigger: false,
+                !trigger.Enabled ? "key audio trigger disabled" : "key configuration dialog active");
             return;
         }
 
-        if (InputBindingService.Matches(trigger.Input1, binding))
+        var matchedInput1 = InputBindingService.Matches(trigger.Input1, binding);
+        InputDebugLogger.LogTriggerDecision("Key audio 1 event path", trigger.Input1, $"configured=0x{trigger.Input1.KeyCode:X2}; incoming=0x{binding.KeyCode:X2}", matchedInput1, false, false, false, false, matchedInput1 ? "matched; checking cooldown/audio" : $"incoming binding did not match: {binding.DisplayName}");
+        if (matchedInput1)
         {
-            TryPlayKeyAudio(1, trigger.AudioPath1, ref _lastKeyAudioTrigger1Utc);
+            TryPlayKeyAudio(1, trigger.Input1, trigger.AudioPath1, ref _lastKeyAudioTrigger1Utc);
             return;
         }
 
-        if (InputBindingService.Matches(trigger.Input2, binding))
+        var matchedInput2 = InputBindingService.Matches(trigger.Input2, binding);
+        InputDebugLogger.LogTriggerDecision("Key audio 2 event path", trigger.Input2, $"configured=0x{trigger.Input2.KeyCode:X2}; incoming=0x{binding.KeyCode:X2}", matchedInput2, false, false, false, false, matchedInput2 ? "matched; checking cooldown/audio" : $"incoming binding did not match: {binding.DisplayName}");
+        if (matchedInput2)
         {
-            TryPlayKeyAudio(2, trigger.AudioPath2, ref _lastKeyAudioTrigger2Utc);
+            TryPlayKeyAudio(2, trigger.Input2, trigger.AudioPath2, ref _lastKeyAudioTrigger2Utc);
             return;
         }
 
-        if (InputBindingService.Matches(trigger.Input3, binding))
+        var matchedInput3 = InputBindingService.Matches(trigger.Input3, binding);
+        InputDebugLogger.LogTriggerDecision("Key audio 3 event path", trigger.Input3, $"configured=0x{trigger.Input3.KeyCode:X2}; incoming=0x{binding.KeyCode:X2}", matchedInput3, false, false, false, false, matchedInput3 ? "matched; checking cooldown/audio" : $"incoming binding did not match: {binding.DisplayName}");
+        if (matchedInput3)
         {
-            TryPlayKeyAudio(3, trigger.AudioPath3, ref _lastKeyAudioTrigger3Utc);
+            TryPlayKeyAudio(3, trigger.Input3, trigger.AudioPath3, ref _lastKeyAudioTrigger3Utc);
         }
     }
 
-    private void TryPlayKeyAudio(int index, string audioPath, ref DateTime lastTriggerUtc)
+    private void TryPlayKeyAudio(int index, InputBinding binding, string audioPath, ref DateTime lastTriggerUtc)
     {
         var now = DateTime.UtcNow;
         var cooldown = TimeSpan.FromSeconds(Math.Max(1, _config.KeyAudioTrigger.CooldownSeconds));
         if (now - lastTriggerUtc < cooldown)
         {
+            InputDebugLogger.LogTriggerDecision($"Key audio {index} playback", binding, $"configured=0x{binding.KeyCode:X2}", true, false, true, false, false, "key audio rejected: cooldown");
             return;
         }
 
         if (string.IsNullOrWhiteSpace(audioPath) ||
             (!File.Exists(audioPath) && !Directory.Exists(audioPath)))
         {
+            InputDebugLogger.LogTriggerDecision($"Key audio {index} playback", binding, $"configured=0x{binding.KeyCode:X2}", true, false, false, false, false, "key audio rejected: audio path missing");
             SetStatus($"按键音效 {index} 的音频文件不存在：{audioPath}");
             lastTriggerUtc = now;
             return;
@@ -2609,12 +2655,14 @@ public partial class AOUU : Form
 
         if (!PlayOneShotAudioPath(audioPath, out var playbackMessage))
         {
+            InputDebugLogger.LogTriggerDecision($"Key audio {index} playback", binding, $"configured=0x{binding.KeyCode:X2}", true, false, false, false, false, $"key audio rejected: playback failed: {playbackMessage}");
             SetStatus(playbackMessage);
             lastTriggerUtc = now;
             return;
         }
 
         lastTriggerUtc = now;
+        InputDebugLogger.LogTriggerDecision($"Key audio {index} playback", binding, $"configured=0x{binding.KeyCode:X2}", true, false, false, false, true, "key audio triggered");
         SetStatus($"按键音效 {index} 已触发。");
     }
 

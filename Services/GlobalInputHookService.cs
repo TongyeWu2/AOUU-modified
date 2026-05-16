@@ -1,4 +1,6 @@
 ﻿using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.InteropServices;
 
 namespace AOUU.Services;
@@ -8,11 +10,28 @@ public sealed class GlobalInputHookService : IDisposable
     private const int WhKeyboardLl = 13;
     private const int WhMouseLl = 14;
     private const int WmKeyDown = 0x0100;
+    private const int WmKeyUp = 0x0101;
     private const int WmSysKeyDown = 0x0104;
+    private const int WmSysKeyUp = 0x0105;
     private const int WmLButtonDown = 0x0201;
     private const int WmRButtonDown = 0x0204;
     private const int WmMButtonDown = 0x0207;
     private const int WmXButtonDown = 0x020B;
+    private const int LlkhfExtended = 0x01;
+    private const int VkShift = 0x10;
+    private const int VkControl = 0x11;
+    private const int VkMenu = 0x12;
+    private const int VkLShift = 0xA0;
+    private const int VkRShift = 0xA1;
+    private const int VkLControl = 0xA2;
+    private const int VkRControl = 0xA3;
+    private const int VkLMenu = 0xA4;
+    private const int VkRMenu = 0xA5;
+    private const int LeftShiftScanCode = 0x2A;
+    private const int RightShiftScanCode = 0x36;
+
+    private static readonly object PressedKeyboardKeysLock = new();
+    private static readonly HashSet<int> PressedKeyboardKeys = [];
 
     private readonly HookProc _keyboardHookProc;
     private readonly HookProc _mouseHookProc;
@@ -32,6 +51,14 @@ public sealed class GlobalInputHookService : IDisposable
     public event Action<int>? MousePressed;
 
     public bool IsInstalled => _keyboardHookHandle != IntPtr.Zero && _mouseHookHandle != IntPtr.Zero;
+
+    public static HashSet<int> GetPressedKeyboardKeys()
+    {
+        lock (PressedKeyboardKeysLock)
+        {
+            return PressedKeyboardKeys.ToHashSet();
+        }
+    }
 
     public void Install()
     {
@@ -65,6 +92,11 @@ public sealed class GlobalInputHookService : IDisposable
             UnhookWindowsHookEx(_mouseHookHandle);
             _mouseHookHandle = IntPtr.Zero;
         }
+
+        lock (PressedKeyboardKeysLock)
+        {
+            PressedKeyboardKeys.Clear();
+        }
     }
 
     public void Dispose()
@@ -80,13 +112,51 @@ public sealed class GlobalInputHookService : IDisposable
 
     private IntPtr KeyboardHookCallback(int nCode, IntPtr wParam, IntPtr lParam)
     {
-        if (nCode >= 0 && (wParam == (IntPtr)WmKeyDown || wParam == (IntPtr)WmSysKeyDown))
+        if (nCode >= 0)
         {
-            var keyCode = Marshal.ReadInt32(lParam);
-            KeyboardPressed?.Invoke(keyCode);
+            var keyboardStruct = Marshal.PtrToStructure<KbLlHookStruct>(lParam);
+            var keyCode = NormalizeKeyboardHookKeyCode(keyboardStruct);
+
+            if (wParam == (IntPtr)WmKeyDown || wParam == (IntPtr)WmSysKeyDown)
+            {
+                var isNewPress = false;
+                lock (PressedKeyboardKeysLock)
+                {
+                    isNewPress = PressedKeyboardKeys.Add(keyCode);
+                }
+
+                InputDebugLogger.LogHookKeyboardEvent(keyCode, isDown: true, isNewPress);
+                if (isNewPress)
+                {
+                    KeyboardPressed?.Invoke(keyCode);
+                }
+            }
+            else if (wParam == (IntPtr)WmKeyUp || wParam == (IntPtr)WmSysKeyUp)
+            {
+                var wasPressed = false;
+                lock (PressedKeyboardKeysLock)
+                {
+                    wasPressed = PressedKeyboardKeys.Remove(keyCode);
+                }
+
+                InputDebugLogger.LogHookKeyboardEvent(keyCode, isDown: false, wasPressed);
+            }
         }
 
         return CallNextHookEx(_keyboardHookHandle, nCode, wParam, lParam);
+    }
+
+    private static int NormalizeKeyboardHookKeyCode(KbLlHookStruct keyboardStruct)
+    {
+        return keyboardStruct.VkCode switch
+        {
+            VkControl => (keyboardStruct.Flags & LlkhfExtended) != 0 ? VkRControl : VkLControl,
+            VkMenu => (keyboardStruct.Flags & LlkhfExtended) != 0 ? VkRMenu : VkLMenu,
+            VkShift => keyboardStruct.ScanCode == RightShiftScanCode ? VkRShift :
+                       keyboardStruct.ScanCode == LeftShiftScanCode ? VkLShift :
+                       VkShift,
+            _ => keyboardStruct.VkCode
+        };
     }
 
     private IntPtr MouseHookCallback(int nCode, IntPtr wParam, IntPtr lParam)
@@ -140,6 +210,16 @@ public sealed class GlobalInputHookService : IDisposable
     {
         public PointStruct Point;
         public int MouseData;
+        public int Flags;
+        public int Time;
+        public IntPtr DwExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct KbLlHookStruct
+    {
+        public int VkCode;
+        public int ScanCode;
         public int Flags;
         public int Time;
         public IntPtr DwExtraInfo;

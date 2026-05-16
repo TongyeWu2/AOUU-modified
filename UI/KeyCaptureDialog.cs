@@ -21,10 +21,13 @@ public sealed class KeyCaptureDialog : Form
     private readonly InputCaptureService _inputCaptureService;
 
     private const int GamepadComboCaptureWindowMilliseconds = 900;
+    private const int KeyboardComboCaptureWindowMilliseconds = 650;
 
     private CaptureState _state = CaptureState.Idle;
     private readonly HashSet<int> _capturedGamepadKeys = [];
+    private InputBinding? _capturedKeyboardBinding;
     private DateTime _gamepadComboCaptureDeadlineUtc;
+    private DateTime _keyboardComboCaptureDeadlineUtc;
 
     public KeyCaptureDialog(string keyPurpose, string currentKeyName, InputCaptureService inputCaptureService)
     {
@@ -185,6 +188,7 @@ public sealed class KeyCaptureDialog : Form
         CapturedKeyName = null;
         CapturedBinding = null;
         _capturedGamepadKeys.Clear();
+        _capturedKeyboardBinding = null;
         _resultLabel.Text = "识别结果：等待识别";
         _statusLabel.Text = "正在准备监听，请稍后按下目标键...";
         _confirmButton.Enabled = false;
@@ -228,6 +232,12 @@ public sealed class KeyCaptureDialog : Form
             return;
         }
 
+        if (_state == CaptureState.KeyboardComboCapturing)
+        {
+            ContinueKeyboardComboCapture(binding);
+            return;
+        }
+
         if (_state != CaptureState.Armed)
         {
             return;
@@ -241,35 +251,71 @@ public sealed class KeyCaptureDialog : Form
             return;
         }
 
-        if (binding.Kind == InputBindingKind.Keyboard &&
-            InputBindingService.IsModifierKey(keyCode) &&
-            binding.Modifiers == KeyboardModifiers.None)
+        BeginKeyboardComboCapture(binding);
+    }
+
+    private void BeginKeyboardComboCapture(InputBinding binding)
+    {
+        _keyboardComboCaptureDeadlineUtc = DateTime.UtcNow.AddMilliseconds(KeyboardComboCaptureWindowMilliseconds);
+        _state = CaptureState.KeyboardComboCapturing;
+        CollectKeyboardBinding(binding);
+        UpdateKeyboardComboStatus();
+    }
+
+    private void ContinueKeyboardComboCapture(InputBinding binding)
+    {
+        if (binding.Kind != InputBindingKind.Keyboard)
         {
-            _statusLabel.Text = "如果要设置组合键，请按住 Ctrl / Alt / Shift 后再按目标键。";
+            _statusLabel.Text = "不支持键盘 + 手柄混合组合键，请只使用键盘组合或只使用手柄按钮组合。";
             return;
         }
 
-        if (binding.Kind == InputBindingKind.Keyboard && binding.GamepadKeyCodes.Count > 0)
+        CollectKeyboardBinding(binding);
+        UpdateKeyboardComboStatus();
+    }
+
+    private void CollectKeyboardBinding(InputBinding binding)
+    {
+        var pressedKeys = TriggerMonitorService.GetPressedKeyboardAndMouseKeys();
+        pressedKeys.Add(binding.KeyCode);
+        _capturedKeyboardBinding = InputBindingService.FromKeyboardState(pressedKeys, binding.KeyCode);
+    }
+
+    private void FinishKeyboardComboCapture()
+    {
+        if (_state != CaptureState.KeyboardComboCapturing || _capturedKeyboardBinding is null)
+        {
+            return;
+        }
+
+        var binding = _capturedKeyboardBinding.Clone();
+        var keyCode = binding.KeyCode;
+
+        if (binding.GamepadKeyCodes.Count > 0)
         {
             _statusLabel.Text = "不支持键盘 + 手柄混合组合键，请只使用键盘组合或只使用手柄按钮组合。";
+            _state = CaptureState.Armed;
             return;
         }
 
         if (keyCode == 0x01)
         {
             _statusLabel.Text = "不允许设置为鼠标左键，请换一个键。";
+            _state = CaptureState.Armed;
             return;
         }
 
         if (keyCode == 0x02)
         {
             _statusLabel.Text = "不建议设置为鼠标右键，请换一个键。";
+            _state = CaptureState.Armed;
             return;
         }
 
         if (!InputBindingService.IsSupported(binding))
         {
             _statusLabel.Text = "这个输入不适合作为快捷键，请换成键盘键、鼠标侧键或手柄按钮。";
+            _state = CaptureState.Armed;
             return;
         }
 
@@ -284,6 +330,19 @@ public sealed class KeyCaptureDialog : Form
         _retryButton.Enabled = true;
         _startCaptureButton.Enabled = true;
         _state = CaptureState.Captured;
+    }
+
+    private void UpdateKeyboardComboStatus()
+    {
+        if (_capturedKeyboardBinding is null)
+        {
+            _resultLabel.Text = "识别结果：等待识别";
+            return;
+        }
+
+        _capturedKeyboardBinding.DisplayName = InputBindingService.GetDisplayName(_capturedKeyboardBinding);
+        _resultLabel.Text = $"识别结果：{_capturedKeyboardBinding.DisplayName}";
+        _statusLabel.Text = "正在收集键盘组合，松开按键或稍等片刻完成录制。";
     }
 
     private void BeginGamepadComboCapture(InputBinding binding)
@@ -385,6 +444,25 @@ public sealed class KeyCaptureDialog : Form
 
     private void StatusTimer_Tick(object? sender, EventArgs e)
     {
+        if (_state == CaptureState.KeyboardComboCapturing)
+        {
+            var pressedKeyboardKeys = TriggerMonitorService.GetPressedKeyboardAndMouseKeys();
+            if (pressedKeyboardKeys.Count == 0 || DateTime.UtcNow >= _keyboardComboCaptureDeadlineUtc)
+            {
+                FinishKeyboardComboCapture();
+                return;
+            }
+
+            if (TriggerMonitorService.GetPressedGamepadKeys().Count > 0)
+            {
+                _statusLabel.Text = "不支持键盘 + 手柄混合组合键，请只使用键盘组合或只使用手柄按钮组合。";
+                return;
+            }
+
+            UpdateKeyboardComboStatus();
+            return;
+        }
+
         if (_state == CaptureState.GamepadComboCapturing)
         {
             CollectCurrentlyPressedGamepadKeys();
@@ -432,6 +510,7 @@ public sealed class KeyCaptureDialog : Form
         Idle,
         Arming,
         Armed,
+        KeyboardComboCapturing,
         GamepadComboCapturing,
         Captured
     }
