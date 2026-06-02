@@ -52,6 +52,10 @@ public sealed class InputCaptureService : IDisposable
             _gamepadPollTimer.Start();
         }
 
+        if (!_keyboardPollTimer.Enabled)
+        {
+            _keyboardPollTimer.Start();
+        }
     }
 
     public void Dispose()

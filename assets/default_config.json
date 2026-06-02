@@ -39,7 +39,7 @@
                          }
                      ],
     "UltHotkeyTrigger":  {
-                             "Enabled":  true,
+                             "Enabled":  false,
                              "Region":  {
                                             "X":  1046,
                                             "Y":  1251,
@@ -122,6 +122,32 @@
                              "AudioPath":  "assets/audio/animals.mp3",
                              "ScanIntervalMs":  200,
                              "CooldownSeconds":  15
+                         },
+    "ultimateClassifier":  {
+                               "Enabled":  true,
+                               "ModelPath":  "assets/model/skill_classifier.onnx",
+                               "LabelsPath":  "assets/model/labels.txt",
+                               "Region":  {
+                                              "X":  1046,
+                                              "Y":  1251,
+                                              "Width":  331,
+                                              "Height":  166
+                                          },
+                               "ConfidenceThreshold":  0.85,
+                               "ScanIntervalMs":  200,
+                               "CooldownSeconds":  10
+                           },
+    "ultimateSoundMap":  {
+                             "bird":  "assets/audio/╔±├╪╥⌠╨º┐Γ/70.╣½╝ª┤≥├∙.mp3",
+                             "dog":  "assets/audio/animals.mp3",
+                             "eye":  "assets/audio/╔±├╪╥⌠╨º┐Γ/84.lbw─π║├.mp3",
+                             "jue":  "assets/audio/Faded.mp3",
+                             "lai":  "",
+                             "lao":  "",
+                             "wo":  "assets/audio/并非.mp3",
+                             "xiu":  "",
+                             "ying":  "assets/audio/╔±├╪╥⌠╨º┐Γ/7.╛»▒¿.mp3",
+                             "zhui":  "assets/audio/袭击桩桩RVC.mp3"
                          },
     "ImageHotkeyTrigger":  {
                                "Enabled":  true,

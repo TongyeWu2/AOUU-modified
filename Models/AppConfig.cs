@@ -48,6 +48,10 @@ public sealed class AppConfig
 
     public ImageHotkeyTriggerConfig UltHotkeyTrigger { get; set; } = new();
 
+    public UltimateClassifierConfig UltimateClassifier { get; set; } = new();
+
+    public Dictionary<string, string> UltimateSoundMap { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
     public ImageHotkeyTriggerConfig ImageHotkeyTrigger { get; set; } = new();
 
     public KeyAudioTriggerConfig KeyAudioTrigger { get; set; } = new();
@@ -150,6 +154,23 @@ public sealed class TextTriggerConfig
     public int ScanIntervalMs { get; set; } = 500;
 
     public int CooldownSeconds { get; set; } = 5;
+}
+
+public sealed class UltimateClassifierConfig
+{
+    public bool Enabled { get; set; } = true;
+
+    public string ModelPath { get; set; } = "assets/model/skill_classifier.onnx";
+
+    public string LabelsPath { get; set; } = "assets/model/labels.txt";
+
+    public ScreenBounds? Region { get; set; }
+
+    public double ConfidenceThreshold { get; set; } = 0.85;
+
+    public int ScanIntervalMs { get; set; } = 200;
+
+    public int CooldownSeconds { get; set; } = 10;
 }
 
 public sealed class ImageHotkeyTriggerConfig

@@ -48,8 +48,11 @@ public static class InputBindingService
 
     public static InputBinding FromKeyboardState(ISet<int> pressedKeys, int triggerKeyCode)
     {
+        var normalizedTriggerKeyCode = NormalizeKeyboardKeyCode(triggerKeyCode);
         var keyboardKeys = pressedKeys
             .Where(keyCode => !TriggerMonitorService.IsGamepadKey(keyCode))
+            .Select(NormalizeKeyboardKeyCode)
+            .Where(IsKeyboardCaptureKey)
             .Distinct()
             .ToList();
         var modifierKeyCodes = GetKeyboardModifierKeyCodes(keyboardKeys);
@@ -57,11 +60,16 @@ public static class InputBindingService
             .Where(keyCode => !IsModifierKey(keyCode))
             .OrderBy(keyCode => keyCode)
             .FirstOrDefault();
-        var keyCode = !IsModifierKey(triggerKeyCode)
-            ? triggerKeyCode
+        var keyCode = !IsModifierKey(normalizedTriggerKeyCode) && IsKeyboardCaptureKey(normalizedTriggerKeyCode)
+            ? normalizedTriggerKeyCode
             : nonModifierKeyCode != 0
                 ? nonModifierKeyCode
-                : ResolveModifierKeyForBinding(triggerKeyCode, modifierKeyCodes);
+                : ResolveModifierKeyForBinding(normalizedTriggerKeyCode, modifierKeyCodes);
+
+        if (keyCode == 0)
+        {
+            InputDebugLogger.LogMessage($"Ignored unsupported keyboard capture key 0x{triggerKeyCode:X2}.");
+        }
 
         var binding = new InputBinding
         {
@@ -226,6 +234,7 @@ public static class InputBindingService
         }
         else
         {
+            normalized.KeyCode = NormalizeKeyboardKeyCode(normalized.KeyCode);
             normalized.KeyboardModifierKeyCodes = IsModifierKey(normalized.KeyCode)
                 ? []
                 : GetKeyboardModifierKeyCodes(normalized);
@@ -233,6 +242,11 @@ public static class InputBindingService
             {
                 normalized.Modifiers = GetKeyboardModifiers(normalized.KeyboardModifierKeyCodes);
             }
+        }
+
+        if (normalized.Kind == InputBindingKind.Keyboard)
+        {
+            normalized.KeyCode = NormalizeKeyboardKeyCode(normalized.KeyCode);
         }
 
         normalized.DisplayName = GetDisplayName(normalized);
@@ -263,7 +277,7 @@ public static class InputBindingService
 
     public static bool IsModifierKey(int keyCode)
     {
-        return keyCode is CtrlKey or AltKey or ShiftKey or LeftCtrlKey or RightCtrlKey or LeftAltKey or RightAltKey or LeftShiftKey or RightShiftKey;
+        return NormalizeKeyboardKeyCode(keyCode) is CtrlKey or AltKey or ShiftKey;
     }
 
     public static bool HasNonModifierKeyboardKey(ISet<int> pressedKeys)
@@ -273,20 +287,13 @@ public static class InputBindingService
 
     private static int ResolveModifierKeyForBinding(int keyCode, IReadOnlyCollection<int> pressedModifierKeyCodes)
     {
-        if (IsSideSpecificModifierKey(keyCode))
+        var normalizedKeyCode = NormalizeKeyboardKeyCode(keyCode);
+        return normalizedKeyCode switch
         {
-            return keyCode;
-        }
-
-        return keyCode switch
-        {
-            CtrlKey when pressedModifierKeyCodes.Contains(LeftCtrlKey) => LeftCtrlKey,
-            CtrlKey when pressedModifierKeyCodes.Contains(RightCtrlKey) => RightCtrlKey,
-            AltKey when pressedModifierKeyCodes.Contains(LeftAltKey) => LeftAltKey,
-            AltKey when pressedModifierKeyCodes.Contains(RightAltKey) => RightAltKey,
-            ShiftKey when pressedModifierKeyCodes.Contains(LeftShiftKey) => LeftShiftKey,
-            ShiftKey when pressedModifierKeyCodes.Contains(RightShiftKey) => RightShiftKey,
-            _ => keyCode
+            CtrlKey when pressedModifierKeyCodes.Contains(CtrlKey) => CtrlKey,
+            AltKey when pressedModifierKeyCodes.Contains(AltKey) => AltKey,
+            ShiftKey when pressedModifierKeyCodes.Contains(ShiftKey) => ShiftKey,
+            _ => normalizedKeyCode
         };
     }
 
@@ -308,11 +315,11 @@ public static class InputBindingService
 
     private static KeyboardModifiers GetModifierFlag(int keyCode)
     {
-        return keyCode switch
+        return NormalizeKeyboardKeyCode(keyCode) switch
         {
-            CtrlKey or LeftCtrlKey or RightCtrlKey => KeyboardModifiers.Ctrl,
-            AltKey or LeftAltKey or RightAltKey => KeyboardModifiers.Alt,
-            ShiftKey or LeftShiftKey or RightShiftKey => KeyboardModifiers.Shift,
+            CtrlKey => KeyboardModifiers.Ctrl,
+            AltKey => KeyboardModifiers.Alt,
+            ShiftKey => KeyboardModifiers.Shift,
             _ => KeyboardModifiers.None
         };
     }
@@ -325,23 +332,18 @@ public static class InputBindingService
     private static List<int> GetKeyboardModifierKeyCodes(IEnumerable<int> keyCodes)
     {
         var modifierKeyCodes = keyCodes
+            .Select(NormalizeKeyboardKeyCode)
             .Where(IsModifierKey)
             .Distinct()
             .ToList();
 
         return new[]
             {
-                LeftCtrlKey,
-                RightCtrlKey,
                 CtrlKey,
-                LeftAltKey,
-                RightAltKey,
                 AltKey,
-                LeftShiftKey,
-                RightShiftKey,
                 ShiftKey
             }
-            .Where(keyCode => modifierKeyCodes.Contains(keyCode) && !HasSideSpecificEquivalent(keyCode, modifierKeyCodes))
+            .Where(modifierKeyCodes.Contains)
             .ToList();
     }
 
@@ -358,17 +360,19 @@ public static class InputBindingService
 
     private static bool KeyboardKeyCodesMatch(int configuredKeyCode, int pressedKeyCode)
     {
-        if (configuredKeyCode == pressedKeyCode)
+        var normalizedConfiguredKeyCode = NormalizeKeyboardKeyCode(configuredKeyCode);
+        var normalizedPressedKeyCode = NormalizeKeyboardKeyCode(pressedKeyCode);
+        if (normalizedConfiguredKeyCode == normalizedPressedKeyCode)
         {
             return true;
         }
 
-        if (IsModifierKey(configuredKeyCode) && IsModifierKey(pressedKeyCode))
+        if (IsModifierKey(normalizedConfiguredKeyCode) && IsModifierKey(normalizedPressedKeyCode))
         {
-            return ModifierKeyCodesCompatible(configuredKeyCode, pressedKeyCode);
+            return ModifierKeyCodesCompatible(normalizedConfiguredKeyCode, normalizedPressedKeyCode);
         }
 
-        return TriggerMonitorService.IsSameHotkey(configuredKeyCode, pressedKeyCode);
+        return TriggerMonitorService.IsSameHotkey(normalizedConfiguredKeyCode, normalizedPressedKeyCode);
     }
 
     private static bool KeyboardModifiersMatch(InputBinding configured, InputBinding pressed)
@@ -464,24 +468,26 @@ public static class InputBindingService
 
     private static bool ModifierKeyCodesCompatible(int configuredKeyCode, int pressedKeyCode)
     {
-        if (configuredKeyCode == pressedKeyCode)
+        var normalizedConfiguredKeyCode = NormalizeKeyboardKeyCode(configuredKeyCode);
+        var normalizedPressedKeyCode = NormalizeKeyboardKeyCode(pressedKeyCode);
+        if (normalizedConfiguredKeyCode == normalizedPressedKeyCode)
         {
             return true;
         }
 
-        if (IsCtrlKey(configuredKeyCode) && IsCtrlKey(pressedKeyCode))
+        if (IsCtrlKey(normalizedConfiguredKeyCode) && IsCtrlKey(normalizedPressedKeyCode))
         {
-            return configuredKeyCode == CtrlKey || pressedKeyCode == CtrlKey;
+            return true;
         }
 
-        if (IsAltKey(configuredKeyCode) && IsAltKey(pressedKeyCode))
+        if (IsAltKey(normalizedConfiguredKeyCode) && IsAltKey(normalizedPressedKeyCode))
         {
-            return configuredKeyCode == AltKey || pressedKeyCode == AltKey;
+            return true;
         }
 
-        if (IsShiftKey(configuredKeyCode) && IsShiftKey(pressedKeyCode))
+        if (IsShiftKey(normalizedConfiguredKeyCode) && IsShiftKey(normalizedPressedKeyCode))
         {
-            return configuredKeyCode == ShiftKey || pressedKeyCode == ShiftKey;
+            return true;
         }
 
         return false;
@@ -489,17 +495,33 @@ public static class InputBindingService
 
     private static bool IsCtrlKey(int keyCode)
     {
-        return keyCode is CtrlKey or LeftCtrlKey or RightCtrlKey;
+        return NormalizeKeyboardKeyCode(keyCode) == CtrlKey;
     }
 
     private static bool IsAltKey(int keyCode)
     {
-        return keyCode is AltKey or LeftAltKey or RightAltKey;
+        return NormalizeKeyboardKeyCode(keyCode) == AltKey;
     }
 
     private static bool IsShiftKey(int keyCode)
     {
-        return keyCode is ShiftKey or LeftShiftKey or RightShiftKey;
+        return NormalizeKeyboardKeyCode(keyCode) == ShiftKey;
+    }
+
+    private static int NormalizeKeyboardKeyCode(int keyCode)
+    {
+        return keyCode switch
+        {
+            LeftCtrlKey or RightCtrlKey => CtrlKey,
+            LeftAltKey or RightAltKey => AltKey,
+            LeftShiftKey or RightShiftKey => ShiftKey,
+            _ => keyCode
+        };
+    }
+
+    private static bool IsKeyboardCaptureKey(int keyCode)
+    {
+        return IsModifierKey(keyCode) || TriggerMonitorService.IsSupportedKeyboardOrMouseKey(keyCode);
     }
 
     private static bool IsKeyboardKeyPressed(int keyCode)

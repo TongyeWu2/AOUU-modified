@@ -312,6 +312,38 @@ On first launch, if that user config does not exist, AOUU copies `assets/default
 
 Bundled audio and image asset paths in `assets/default_config.json` should be relative to the app directory, such as `assets/audio/default.wav`, `assets/SkillPic/Zhui.png`, or `templates/defaults/skill_ready.png`. Absolute paths are still supported for user-selected files and are kept unchanged when loading config.
 
+### Ultimate Classifier Model
+
+Ultimate recognition now uses the bundled ONNX classifier at `assets/model/skill_classifier.onnx` with labels from `assets/model/labels.txt`. The model sidecar file `assets/model/skill_classifier.onnx.data` must stay next to the ONNX file.
+
+The default labels are `bird`, `dog`, `eye`, `jue`, `lai`, `lao`, `nothing`, `wo`, `xiu`, `ying`, and `zhui`. `nothing` is ignored and plays no sound. Map classifier labels to sounds through `ultimateSoundMap` in `%LOCALAPPDATA%\AOUU\config.json`.
+
+Classifier paths in config should stay app-relative:
+
+```json
+"ultimateClassifier": {
+  "Enabled": true,
+  "ModelPath": "assets/model/skill_classifier.onnx",
+  "LabelsPath": "assets/model/labels.txt",
+  "Region": null,
+  "ConfidenceThreshold": 0.85,
+  "ScanIntervalMs": 200,
+  "CooldownSeconds": 3
+},
+"ultimateSoundMap": {
+  "bird": "assets/audio/animals.mp3",
+  "dog": "assets/audio/animals.mp3",
+  "eye": "assets/audio/animals.mp3",
+  "jue": "assets/audio/animals.mp3",
+  "lai": "assets/audio/animals.mp3",
+  "lao": "assets/audio/animals.mp3",
+  "wo": "assets/audio/animals.mp3",
+  "xiu": "assets/audio/animals.mp3",
+  "ying": "assets/audio/animals.mp3",
+  "zhui": "assets/audio/animals.mp3"
+}
+```
+
 To export the current local config into the bundled default preset, run this from the `AOUU` directory:
 
 ```powershell

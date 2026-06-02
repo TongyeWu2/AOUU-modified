@@ -64,11 +64,13 @@ public sealed class TriggerMonitorService : IDisposable
     public TriggerMonitorService()
     {
         _timer = new System.Windows.Forms.Timer();
-        _timer.Interval = 20;
+        _timer.Interval = 10;
         _timer.Tick += Timer_Tick;
     }
 
     public event EventHandler? Triggered;
+
+    public event EventHandler<HotkeyPollEventArgs>? HotkeyPolled;
 
     public int TriggerKey { get; set; } = 0x77;
 
@@ -104,12 +106,6 @@ public sealed class TriggerMonitorService : IDisposable
             return true;
         }
 
-        foreach (var candidate in GetPressedGamepadKeys())
-        {
-            keyCode = candidate;
-            return true;
-        }
-
         keyCode = 0;
         return false;
     }
@@ -119,8 +115,8 @@ public sealed class TriggerMonitorService : IDisposable
         var pressedKeys = new HashSet<int>();
 
         pressedKeys.UnionWith(GetPressedKeyboardAndMouseKeys());
-
         pressedKeys.UnionWith(GetPressedGamepadKeys());
+
         return pressedKeys;
     }
 
@@ -155,7 +151,6 @@ public sealed class TriggerMonitorService : IDisposable
     public static HashSet<int> GetPressedGamepadKeys()
     {
         var pressedKeys = new HashSet<int>();
-
         foreach (var state in EnumerateConnectedGamepadStates())
         {
             AddPressedGamepadKeys(state.Gamepad, pressedKeys);
@@ -207,7 +202,7 @@ public sealed class TriggerMonitorService : IDisposable
 
     public static bool IsSupportedHotkey(int keyCode)
     {
-        return IsGamepadKey(keyCode) || IsSupportedKeyboardOrMouseKey(keyCode);
+        return IsSupportedKeyboardOrMouseKey(keyCode) || IsGamepadKey(keyCode);
     }
 
     public static bool IsSupportedKeyboardOrMouseKey(int keyCode)
@@ -227,7 +222,7 @@ public sealed class TriggerMonitorService : IDisposable
 
     public static bool IsGamepadKey(int keyCode)
     {
-        return TryGetGamepadKeyName(keyCode, out _);
+        return keyCode is >= GamepadA and <= GamepadRightTrigger;
     }
 
     public static bool IsSameHotkey(int configuredKeyCode, int pressedKeyCode)
@@ -249,7 +244,18 @@ public sealed class TriggerMonitorService : IDisposable
     private void Timer_Tick(object? sender, EventArgs e)
     {
         var isPressed = IsConfiguredHotkeyPressed();
-        if (isPressed && !_wasPressed)
+        var isNewPressEdge = isPressed && !_wasPressed;
+        var isHeld = isPressed && _wasPressed;
+        if (isPressed)
+        {
+            HotkeyPolled?.Invoke(this, new HotkeyPollEventArgs(
+                TriggerBinding.Clone(),
+                isPressed,
+                isNewPressEdge,
+                isHeld));
+        }
+
+        if (isNewPressEdge)
         {
             Triggered?.Invoke(this, EventArgs.Empty);
         }
@@ -259,17 +265,9 @@ public sealed class TriggerMonitorService : IDisposable
 
     private bool IsConfiguredHotkeyPressed()
     {
-        if (!InputBindingService.IsSupported(TriggerBinding))
-        {
-            return IsGamepadKey(TriggerKey) && IsGamepadKeyPressed(TriggerKey);
-        }
-
-        if (TriggerBinding.Kind == InputBindingKind.Gamepad)
-        {
-            return InputBindingService.IsPressed(TriggerBinding);
-        }
-
-        return false;
+        return InputBindingService.IsSupported(TriggerBinding)
+            ? InputBindingService.IsPressed(TriggerBinding)
+            : IsHotkeyPressed(TriggerKey);
     }
 
     private static IEnumerable<int> EnumeratePressedKeyboardAndMouseKeys()
@@ -285,7 +283,7 @@ public sealed class TriggerMonitorService : IDisposable
 
     public static bool IsGamepadKeyPressed(int keyCode)
     {
-        if (!TryGetGamepadKeyName(keyCode, out _))
+        if (!IsGamepadKey(keyCode))
         {
             return false;
         }
@@ -504,3 +502,9 @@ public sealed class TriggerMonitorService : IDisposable
         public short sThumbRY;
     }
 }
+
+public sealed record HotkeyPollEventArgs(
+    InputBinding ConfiguredHotkey,
+    bool IsPressed,
+    bool IsNewPressEdge,
+    bool IsHeld);

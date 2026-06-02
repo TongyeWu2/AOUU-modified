@@ -16,6 +16,10 @@ namespace AOUU;
 
 public partial class AOUU : Form
 {
+    private const int UltimateClassifierScanIntervalMs = 200;
+    private const int UltimateClassifierCooldownSeconds = 10;
+    private const double DefaultUltimateClassifierConfidenceThreshold = 0.85;
+
     private enum KeyConfigurationTarget
     {
         None,
@@ -116,6 +120,8 @@ public partial class AOUU : Form
     private readonly RegionChangeDetector _regionChangeDetector;
     private readonly HealthBaselineService _healthBaselineService;
     private readonly ScreenTextRecognizer _screenTextRecognizer;
+    private UltimateClassifierService? _ultimateClassifierService;
+    private string _ultimateClassifierServiceKey = string.Empty;
     private readonly System.Windows.Forms.Timer _textTriggerTimer;
     private readonly System.Windows.Forms.Timer _ultHotkeyScanTimer;
     private readonly System.Windows.Forms.Timer _imageHotkeyScanTimer;
@@ -141,6 +147,14 @@ public partial class AOUU : Form
     private ImageHotkeySkillConfig? _matchedUltHotkeySkill;
     private double _lastUltHotkeyScore;
     private DateTime _lastUltHotkeyTriggerUtc = DateTime.MinValue;
+    private string _lastUltimateClassifierClass = "nothing";
+    private int _lastUltimateClassifierIndex = -1;
+    private float _lastUltimateClassifierConfidence;
+    private bool _lastUltimateClassifierSoundMapped;
+    private string _lastUltimateClassifierSoundPath = string.Empty;
+    private bool _lastUltimateClassifierSoundExists;
+    private string _lastUltimateClassifierDecision = "等待预测";
+    private DateTime _lastUltimateHeldDiagnosticUtc = DateTime.MinValue;
     private bool _isImageHotkeyScanRunning;
     private bool _imageHotkeyMatched;
     private ImageHotkeySkillConfig? _matchedImageHotkeySkill;
@@ -182,6 +196,7 @@ public partial class AOUU : Form
             _circleLocatorService);
         _triggerMonitorService = new TriggerMonitorService();
         _triggerMonitorService.Triggered += TriggerMonitorService_Triggered;
+        _triggerMonitorService.HotkeyPolled += TriggerMonitorService_HotkeyPolled;
 
         _regionCaptureMonitorService = new TriggerMonitorService();
         _regionCaptureMonitorService.Triggered += RegionCaptureMonitorService_Triggered;
@@ -217,8 +232,8 @@ public partial class AOUU : Form
         {
             Left = 24,
             Top = 16,
-            Width = 120,
-            Text = "大招音效"
+            Width = 140,
+            Text = "自动大招识别"
         };
         _ultHotkeyTriggerEnabledBox.CheckedChanged += UltHotkeyTriggerSettings_Changed;
 
@@ -291,7 +306,7 @@ public partial class AOUU : Form
             Left = 504,
             Top = 50,
             Width = 110,
-            Text = "选择大招"
+            Text = "模型模式"
         };
         _browseUltHotkeyTemplateButton.Click += BrowseUltHotkeyTemplateButton_Click;
 
@@ -824,7 +839,8 @@ public partial class AOUU : Form
             _browseUltHotkeyAudioButton,
             _ultHotkeyAudioPathBox,
             _ultHotkeyScanIntervalBox,
-            _ultHotkeyCooldownBox));
+            _ultHotkeyCooldownBox,
+            simplifiedUltimateClassifierLayout: true));
         Controls.Add(CreateImageHotkeySection(
             "战技音效",
             top: 238,
@@ -900,7 +916,8 @@ public partial class AOUU : Form
         Button audioButton,
         TextBox audioPathBox,
         NumericUpDown scanIntervalBox,
-        NumericUpDown cooldownBox)
+        NumericUpDown cooldownBox,
+        bool simplifiedUltimateClassifierLayout = false)
     {
         var groupBox = new GroupBox
         {
@@ -955,29 +972,56 @@ public partial class AOUU : Form
         layout.Controls.Add(regionButton, 1, 0);
         layout.Controls.Add(regionBox, 2, 0);
         layout.SetColumnSpan(regionBox, 3);
-        layout.Controls.Add(addButton, 5, 0);
-        layout.Controls.Add(deleteButton, 6, 0);
-        layout.Controls.Add(hotkeyButton, 7, 0);
-        layout.SetColumnSpan(hotkeyButton, 3);
+        if (simplifiedUltimateClassifierLayout)
+        {
+            addButton.Visible = false;
+            deleteButton.Visible = false;
+            templateButton.Visible = false;
+            thresholdBox.Visible = false;
+            scanIntervalBox.Visible = false;
+            cooldownBox.Visible = false;
+            layout.Controls.Add(hotkeyButton, 5, 0);
+            layout.SetColumnSpan(hotkeyButton, 5);
+        }
+        else
+        {
+            layout.Controls.Add(addButton, 5, 0);
+            layout.Controls.Add(deleteButton, 6, 0);
+            layout.Controls.Add(hotkeyButton, 7, 0);
+            layout.SetColumnSpan(hotkeyButton, 3);
+        }
 
         layout.Controls.Add(entriesListBox, 0, 1);
         layout.SetRowSpan(entriesListBox, 3);
 
-        layout.Controls.Add(CreateSectionLabel("名称"), 1, 1);
+        layout.Controls.Add(CreateSectionLabel(simplifiedUltimateClassifierLayout ? "类别" : "名称"), 1, 1);
         layout.Controls.Add(nameBox, 2, 1);
         layout.SetColumnSpan(nameBox, 2);
-        layout.Controls.Add(templateButton, 4, 1);
-        layout.Controls.Add(templatePathBox, 5, 1);
-        layout.SetColumnSpan(templatePathBox, 4);
+        if (simplifiedUltimateClassifierLayout)
+        {
+            layout.Controls.Add(templatePathBox, 4, 1);
+            layout.SetColumnSpan(templatePathBox, 6);
 
-        layout.Controls.Add(CreateSectionLabel("匹配阈值"), 1, 2);
-        layout.Controls.Add(thresholdBox, 2, 2);
-        layout.Controls.Add(audioButton, 4, 2);
-        layout.Controls.Add(audioPathBox, 5, 2);
-        layout.Controls.Add(CreateSectionLabel("扫描ms"), 6, 2);
-        layout.Controls.Add(scanIntervalBox, 7, 2);
-        layout.Controls.Add(CreateSectionLabel("冷却秒"), 8, 2);
-        layout.Controls.Add(cooldownBox, 9, 2);
+            layout.Controls.Add(CreateSectionLabel("音效"), 1, 2);
+            layout.Controls.Add(audioButton, 2, 2);
+            layout.Controls.Add(audioPathBox, 3, 2);
+            layout.SetColumnSpan(audioPathBox, 7);
+        }
+        else
+        {
+            layout.Controls.Add(templateButton, 4, 1);
+            layout.Controls.Add(templatePathBox, 5, 1);
+            layout.SetColumnSpan(templatePathBox, 4);
+
+            layout.Controls.Add(CreateSectionLabel("匹配阈值"), 1, 2);
+            layout.Controls.Add(thresholdBox, 2, 2);
+            layout.Controls.Add(audioButton, 4, 2);
+            layout.Controls.Add(audioPathBox, 5, 2);
+            layout.Controls.Add(CreateSectionLabel("扫描ms"), 6, 2);
+            layout.Controls.Add(scanIntervalBox, 7, 2);
+            layout.Controls.Add(CreateSectionLabel("冷却秒"), 8, 2);
+            layout.Controls.Add(cooldownBox, 9, 2);
+        }
 
         groupBox.Controls.Add(layout);
         return groupBox;
@@ -1673,9 +1717,9 @@ public partial class AOUU : Form
             return;
         }
 
-        _config.UltHotkeyTrigger.Enabled = _ultHotkeyTriggerEnabledBox.Checked;
-        _config.UltHotkeyTrigger.ScanIntervalMs = (int)_ultHotkeyScanIntervalBox.Value;
-        _config.UltHotkeyTrigger.CooldownSeconds = (int)_ultHotkeyCooldownBox.Value;
+        _config.UltimateClassifier.Enabled = _ultHotkeyTriggerEnabledBox.Checked;
+        ApplyFixedUltimateClassifierTiming();
+        _config.UltHotkeyTrigger.Enabled = false;
 
         SaveConfig();
         UpdateUltHotkeyTriggerDisplay(keepSelection: true);
@@ -1696,6 +1740,7 @@ public partial class AOUU : Form
             return;
         }
 
+        _config.UltimateClassifier.ConfidenceThreshold = GetUltimateClassifierThreshold();
         ult.SimilarityThreshold = (double)_ultHotkeySimilarityBox.Value;
         SaveConfig();
         UpdateSelectedUltHotkeySkillListItem();
@@ -1712,7 +1757,17 @@ public partial class AOUU : Form
         var ult = GetSelectedUltHotkeySkill();
         if (ult is not null)
         {
+            var oldName = ult.Name;
             ult.Name = _ultHotkeySkillNameBox.Text;
+            if (!string.IsNullOrWhiteSpace(oldName) &&
+                _config.UltimateSoundMap.TryGetValue(oldName, out var mappedPath))
+            {
+                _config.UltimateSoundMap.Remove(oldName);
+                if (!string.IsNullOrWhiteSpace(ult.Name))
+                {
+                    _config.UltimateSoundMap[ult.Name] = mappedPath;
+                }
+            }
         }
     }
 
@@ -1826,7 +1881,7 @@ public partial class AOUU : Form
         {
             var step = new SelectionStep(
                 "框选大招检测区域",
-                "只框住要和大招模板比较的屏幕区域。");
+                "只框住要交给大招分类模型识别的屏幕区域。");
 
             if (!TrySelectBoundsSession(step, out var selectedBounds))
             {
@@ -1834,7 +1889,8 @@ public partial class AOUU : Form
                 return;
             }
 
-            _config.UltHotkeyTrigger.Region = ScreenBounds.FromRectangle(selectedBounds);
+            _config.UltimateClassifier.Region = ScreenBounds.FromRectangle(selectedBounds);
+            _config.UltHotkeyTrigger.Region = _config.UltimateClassifier.Region;
             SaveConfig();
             UpdateUltHotkeyTriggerDisplay(keepSelection: true);
             RefreshRegionList();
@@ -1884,9 +1940,13 @@ public partial class AOUU : Form
         }
 
         ult.AudioPath = path;
+        if (TryGetUltimateClassifierClassName(ult, out var className))
+        {
+            _config.UltimateSoundMap[className] = path;
+        }
         SaveConfig();
         UpdateUltHotkeyTriggerDisplay(keepSelection: true);
-        SetStatus("大招音效已更新。");
+        SetStatus($"大招音效已更新：{FormatReadablePath(path)}");
     }
 
     private void ImageHotkeyTriggerSettings_Changed(object? sender, EventArgs e)
@@ -2295,8 +2355,14 @@ public partial class AOUU : Form
         }
     }
 
-    private void HandleUltHotkeyPressed()
+    private async void HandleUltHotkeyPressed()
     {
+        if (_config.UltimateClassifier.Enabled)
+        {
+            await RunUltimateClassifierOnceAsync();
+            return;
+        }
+
         var trigger = _config.UltHotkeyTrigger;
         if (!trigger.Enabled)
         {
@@ -2533,10 +2599,46 @@ public partial class AOUU : Form
         if (_isConfiguringKey || _isRecognitionRunning || _isRegionCaptureRunning)
         {
             InputDebugLogger.LogMessage("Ultimate hotkey monitor triggered but UI gate rejected it: configuring/recognition/region-capture active.");
+            SetUltimateClassifierDecision("跳过：UI正在配置/识别/框选", updateStatus: true);
             return;
         }
 
         HandleUltHotkeyPressed();
+    }
+
+    private void TriggerMonitorService_HotkeyPolled(object? sender, HotkeyPollEventArgs e)
+    {
+        if (!_config.UltimateClassifier.Enabled)
+        {
+            return;
+        }
+
+        if (e.IsNewPressEdge)
+        {
+            LogUltimateHotkeyDiagnostic(e, "检测到新按下边沿，准备识别。");
+            SetUltimateClassifierDecision("热键边沿：准备识别", updateStatus: true);
+            return;
+        }
+
+        if (e.IsHeld)
+        {
+            var now = DateTime.UtcNow;
+            if (now - _lastUltimateHeldDiagnosticUtc < TimeSpan.FromMilliseconds(500))
+            {
+                return;
+            }
+
+            _lastUltimateHeldDiagnosticUtc = now;
+            LogUltimateHotkeyDiagnostic(e, "忽略：热键仍在按住，等待松开后下一次按下。");
+            SetUltimateClassifierDecision("跳过：热键按住中", updateStatus: false);
+        }
+    }
+
+    private void LogUltimateHotkeyDiagnostic(HotkeyPollEventArgs e, string reason)
+    {
+        InputDebugLogger.LogMessage(
+            $"Ultimate hotkey poll: configured={InputBindingService.GetDisplayName(e.ConfiguredHotkey)}; " +
+            $"pressed={e.IsPressed}; newEdge={e.IsNewPressEdge}; heldIgnored={e.IsHeld}; reason={reason}");
     }
 
     private void RegionCaptureMonitorService_Triggered(object? sender, EventArgs e)
@@ -2632,6 +2734,175 @@ public partial class AOUU : Form
         {
             TryPlayKeyAudio(3, trigger.Input3, trigger.AudioPath3, ref _lastKeyAudioTrigger3Utc);
         }
+    }
+
+    private async Task RunUltimateClassifierOnceAsync()
+    {
+        var classifier = _config.UltimateClassifier;
+        if (_isUltHotkeyScanRunning || _isRegionCaptureRunning || _isConfiguringKey || !classifier.Enabled)
+        {
+            SetUltimateClassifierDecision(
+                $"跳过：busy={_isUltHotkeyScanRunning}, regionCapture={_isRegionCaptureRunning}, configuring={_isConfiguringKey}, enabled={classifier.Enabled}",
+                updateStatus: true);
+            return;
+        }
+
+        InputDebugLogger.LogMessage(
+            $"Ultimate classifier hotkey attempt: configured={_config.TriggerInput.DisplayName}; " +
+            $"pressedNow={InputBindingService.IsPressed(_config.TriggerInput)}; " +
+            $"region={classifier.Region}; threshold={GetUltimateClassifierThreshold():0.###}; cooldownSeconds={UltimateClassifierCooldownSeconds}");
+
+        if (!InputBindingService.IsSupported(_config.TriggerInput))
+        {
+            SetUltimateClassifierDecision("跳过：未设置大招热键", updateStatus: true);
+            SetStatus("自动大招识别缺少有效的大招触发按键。");
+            return;
+        }
+
+        var now = DateTime.UtcNow;
+        var cooldown = TimeSpan.FromSeconds(UltimateClassifierCooldownSeconds);
+        if (now - _lastUltHotkeyTriggerUtc < cooldown)
+        {
+            var remaining = cooldown - (now - _lastUltHotkeyTriggerUtc);
+            SetUltimateClassifierDecision($"跳过：冷却中 {remaining.TotalSeconds:0.0}s", updateStatus: true);
+            return;
+        }
+
+        if (classifier.Region is null || classifier.Region.Width <= 0 || classifier.Region.Height <= 0)
+        {
+            _lastUltimateClassifierClass = "nothing";
+            _lastUltimateClassifierIndex = -1;
+            _lastUltimateClassifierConfidence = 0;
+            _lastUltimateClassifierSoundMapped = false;
+            _lastUltimateClassifierSoundPath = string.Empty;
+            _lastUltimateClassifierSoundExists = false;
+            SetUltimateClassifierDecision("跳过：未设置区域", updateStatus: true);
+            SetStatus("自动大招识别缺少检测区域。");
+            return;
+        }
+
+        _isUltHotkeyScanRunning = true;
+        SetUltimateClassifierDecision("正在识别：已调用分类器", updateStatus: true);
+
+        try
+        {
+            using var screenshot = _screenCaptureService.Capture(classifier.Region.ToRectangle());
+            var modelPath = ResolveAppPath(classifier.ModelPath);
+            var labelsPath = ResolveAppPath(classifier.LabelsPath);
+            var prediction = await Task.Run(() =>
+            {
+                var service = GetUltimateClassifierService(modelPath, labelsPath);
+                return service.Predict(screenshot);
+            }, _shutdownCts.Token);
+
+            _lastUltimateClassifierClass = prediction.ClassName;
+            _lastUltimateClassifierIndex = prediction.Index;
+            _lastUltimateClassifierConfidence = prediction.Confidence;
+            _lastUltimateClassifierSoundPath = GetUltimateClassifierAudioPath(prediction.ClassName);
+            _lastUltimateClassifierSoundMapped = !string.IsNullOrWhiteSpace(_lastUltimateClassifierSoundPath);
+            _lastUltimateClassifierSoundExists = IsUltimateClassifierAudioPathAvailable(_lastUltimateClassifierSoundPath);
+            SetUltimateClassifierDecision("分类完成：待判断", updateStatus: false);
+            InputDebugLogger.LogMessage(
+                $"Ultimate classifier result: index={prediction.Index}; class={prediction.ClassName}; " +
+                $"confidence={prediction.Confidence:0.###}; threshold={classifier.ConfidenceThreshold:0.###}; " +
+                $"mappedPath={_lastUltimateClassifierSoundPath}; pathExists={_lastUltimateClassifierSoundExists}");
+            HandleUltimateClassifierPrediction(prediction, now);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            _lastUltimateClassifierClass = "error";
+            _lastUltimateClassifierIndex = -1;
+            _lastUltimateClassifierConfidence = 0;
+            _lastUltimateClassifierSoundMapped = false;
+            _lastUltimateClassifierSoundPath = string.Empty;
+            _lastUltimateClassifierSoundExists = false;
+            SetUltimateClassifierDecision($"跳过：识别失败 {ex.Message}", updateStatus: true);
+            SetStatus($"自动大招识别失败：{ex.Message}");
+        }
+        finally
+        {
+            _isUltHotkeyScanRunning = false;
+        }
+    }
+
+    private UltimateClassifierService GetUltimateClassifierService(string modelPath, string labelsPath)
+    {
+        var key = $"{modelPath}|{labelsPath}";
+        if (_ultimateClassifierService is not null &&
+            string.Equals(_ultimateClassifierServiceKey, key, StringComparison.OrdinalIgnoreCase))
+        {
+            return _ultimateClassifierService;
+        }
+
+        _ultimateClassifierService?.Dispose();
+        _ultimateClassifierService = new UltimateClassifierService(modelPath, labelsPath);
+        _ultimateClassifierServiceKey = key;
+        return _ultimateClassifierService;
+    }
+
+    private void HandleUltimateClassifierPrediction(UltimateClassifierPrediction prediction, DateTime triggeredAtUtc)
+    {
+        var className = prediction.ClassName.Trim();
+        if (string.Equals(className, "nothing", StringComparison.OrdinalIgnoreCase))
+        {
+            SetUltimateClassifierDecision("跳过：nothing", updateStatus: true);
+            return;
+        }
+
+        var threshold = GetUltimateClassifierThreshold();
+        if (prediction.Confidence < threshold)
+        {
+            SetUltimateClassifierDecision($"跳过：低于阈值 {threshold:P0}", updateStatus: true);
+            return;
+        }
+
+        var audioPath = GetUltimateClassifierAudioPath(className);
+        if (string.IsNullOrWhiteSpace(audioPath))
+        {
+            SetUltimateClassifierDecision("跳过：无音效映射", updateStatus: true);
+            SetStatus($"识别到大招类别“{className}”（{prediction.Confidence:P1}），但没有配置对应音效。");
+            return;
+        }
+
+        if (!PlayAudioPath(audioPath, out var playbackMessage))
+        {
+            SetUltimateClassifierDecision("跳过：播放失败", updateStatus: true);
+            SetStatus(playbackMessage);
+            return;
+        }
+
+        _lastUltHotkeyTriggerUtc = triggeredAtUtc;
+        SetUltimateClassifierDecision("已触发播放", updateStatus: true);
+        SetStatus($"自动识别到“{className}”（{prediction.Confidence:P1}），已播放大招音效。");
+    }
+
+    private string GetUltimateClassifierAudioPath(string className)
+    {
+        if (string.Equals(className, "nothing", StringComparison.OrdinalIgnoreCase))
+        {
+            return string.Empty;
+        }
+
+        if (_config.UltimateSoundMap.TryGetValue(className, out var mappedPath))
+        {
+            return mappedPath;
+        }
+
+        return string.Empty;
+    }
+
+    private static bool IsUltimateClassifierAudioPathAvailable(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return false;
+        }
+
+        var resolvedPath = ResolveAppPath(path);
+        return File.Exists(resolvedPath) || Directory.Exists(resolvedPath);
     }
 
     private void TryPlayKeyAudio(int index, InputBinding binding, string audioPath, ref DateTime lastTriggerUtc)
@@ -3275,6 +3546,8 @@ public partial class AOUU : Form
 
     private bool TryResolveAudioPath(string path, out string audioPath)
     {
+        path = ResolveAppPath(path);
+
         if (File.Exists(path) && IsSupportedAudioFile(path))
         {
             audioPath = path;
@@ -3296,6 +3569,16 @@ public partial class AOUU : Form
 
         audioPath = string.Empty;
         return false;
+    }
+
+    private static string ResolveAppPath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || Path.IsPathRooted(path))
+        {
+            return path;
+        }
+
+        return Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, path.Replace('/', Path.DirectorySeparatorChar)));
     }
 
     private static bool IsSupportedAudioFile(string path)
@@ -3322,9 +3605,10 @@ public partial class AOUU : Form
             _textTriggerScanIntervalBox.Value = Math.Clamp(textTrigger.ScanIntervalMs, (int)_textTriggerScanIntervalBox.Minimum, (int)_textTriggerScanIntervalBox.Maximum);
             _textTriggerCooldownBox.Value = Math.Clamp(textTrigger.CooldownSeconds, (int)_textTriggerCooldownBox.Minimum, (int)_textTriggerCooldownBox.Maximum);
             UpdateTextTriggerDisplay();
-            _ultHotkeyTriggerEnabledBox.Checked = _config.UltHotkeyTrigger.Enabled;
-            _ultHotkeyScanIntervalBox.Value = Math.Clamp(_config.UltHotkeyTrigger.ScanIntervalMs, (int)_ultHotkeyScanIntervalBox.Minimum, (int)_ultHotkeyScanIntervalBox.Maximum);
-            _ultHotkeyCooldownBox.Value = Math.Clamp(_config.UltHotkeyTrigger.CooldownSeconds, (int)_ultHotkeyCooldownBox.Minimum, (int)_ultHotkeyCooldownBox.Maximum);
+            _ultHotkeyTriggerEnabledBox.Checked = _config.UltimateClassifier.Enabled;
+            ApplyFixedUltimateClassifierTiming();
+            _ultHotkeyScanIntervalBox.Value = UltimateClassifierScanIntervalMs;
+            _ultHotkeyCooldownBox.Value = UltimateClassifierCooldownSeconds;
             UpdateUltHotkeyTriggerDisplay();
             _imageHotkeyTriggerEnabledBox.Checked = _config.ImageHotkeyTrigger.Enabled;
             _imageHotkeyScanIntervalBox.Value = Math.Clamp(_config.ImageHotkeyTrigger.ScanIntervalMs, (int)_imageHotkeyScanIntervalBox.Minimum, (int)_imageHotkeyScanIntervalBox.Maximum);
@@ -3373,9 +3657,9 @@ public partial class AOUU : Form
             _regionsListBox.Items.Add($"OCR文字触发区域 | {textTrigger.Text} | {textTrigger.Region}");
         }
 
-        if (_config.UltHotkeyTrigger.Region is not null)
+        if (_config.UltimateClassifier.Region is not null)
         {
-            _regionsListBox.Items.Add($"大招区域 | {_config.UltHotkeyTrigger.Region}");
+            _regionsListBox.Items.Add($"自动大招识别区域 | {_config.UltimateClassifier.Region}");
         }
 
         if (_config.ImageHotkeyTrigger.Region is not null)
@@ -3405,7 +3689,10 @@ public partial class AOUU : Form
             : _textTriggerTextBox.Text.Trim();
         textTrigger.ScanIntervalMs = (int)_textTriggerScanIntervalBox.Value;
         textTrigger.CooldownSeconds = (int)_textTriggerCooldownBox.Value;
-        _config.UltHotkeyTrigger.Enabled = _ultHotkeyTriggerEnabledBox.Checked;
+        _config.UltimateClassifier.Enabled = _ultHotkeyTriggerEnabledBox.Checked;
+        _config.UltimateClassifier.ConfidenceThreshold = GetUltimateClassifierThreshold();
+        ApplyFixedUltimateClassifierTiming();
+        _config.UltHotkeyTrigger.Enabled = false;
         _config.UltHotkeyTrigger.HotkeyInput = _config.TriggerInput.Clone();
         _config.UltHotkeyTrigger.Hotkey = _config.TriggerInput.KeyCode;
         _config.UltHotkeyTrigger.HotkeyName = _config.TriggerInput.DisplayName;
@@ -3500,9 +3787,10 @@ public partial class AOUU : Form
             _isApplyingConfigToUi = wasApplyingConfigToUi;
         }
 
-        _ultHotkeyRegionBox.Text = trigger.Region is null
-            ? "未设置大招区域"
-            : trigger.Region.ToString();
+        var classifier = _config.UltimateClassifier;
+        _ultHotkeyRegionBox.Text = classifier.Region is null
+            ? "未设置自动识别区域"
+            : classifier.Region.ToString();
         UpdateSelectedUltHotkeySkillDisplay();
         UpdateRegionCaptureHotkeyButtonText();
     }
@@ -3515,33 +3803,184 @@ public partial class AOUU : Form
         try
         {
             _ultHotkeySkillNameBox.Enabled = ult is not null;
-            _browseUltHotkeyTemplateButton.Enabled = ult is not null;
+            _ultHotkeySkillNameBox.ReadOnly = true;
+            _browseUltHotkeyTemplateButton.Enabled = false;
             _browseUltHotkeyAudioButton.Enabled = ult is not null;
-            _ultHotkeySimilarityBox.Enabled = ult is not null;
+            _ultHotkeySimilarityBox.Enabled = true;
             _deleteUltHotkeySkillButton.Enabled = ult is not null;
 
             if (ult is null)
             {
                 _ultHotkeySkillNameBox.Text = string.Empty;
-                _ultHotkeyTemplatePathBox.Text = "未添加大招";
-                _ultHotkeyAudioPathBox.Text = "未添加大招";
-                _ultHotkeySimilarityBox.Value = 0.85M;
+                _ultHotkeyTemplatePathBox.Text = GetUltimateClassifierDebugDisplayText();
+                _ultHotkeyAudioPathBox.Text = "未选择类别音效";
+                _ultHotkeySimilarityBox.Value = Math.Clamp((decimal)_config.UltimateClassifier.ConfidenceThreshold, _ultHotkeySimilarityBox.Minimum, _ultHotkeySimilarityBox.Maximum);
                 return;
             }
 
-            _ultHotkeySkillNameBox.Text = ult.Name;
-            _ultHotkeyTemplatePathBox.Text = string.IsNullOrWhiteSpace(ult.TemplateImagePath)
-                ? "未选择大招模板"
-                : Path.GetFileName(ult.TemplateImagePath);
-            _ultHotkeyAudioPathBox.Text = string.IsNullOrWhiteSpace(ult.AudioPath)
-                ? "未选择大招音效"
-                : Path.GetFileName(ult.AudioPath);
-            _ultHotkeySimilarityBox.Value = Math.Clamp((decimal)ult.SimilarityThreshold, _ultHotkeySimilarityBox.Minimum, _ultHotkeySimilarityBox.Maximum);
+            var className = TryGetUltimateClassifierClassName(ult, out var mappedClassName)
+                ? mappedClassName
+                : ult.Name;
+            _ultHotkeySkillNameBox.Text = className;
+            _ultHotkeyTemplatePathBox.Text = GetUltimateClassifierDebugDisplayText();
+            _ultHotkeyAudioPathBox.Text = GetUltimateClassifierSelectedAudioDisplayText(ult);
+            _ultHotkeySimilarityBox.Value = Math.Clamp((decimal)GetUltimateClassifierThreshold(), _ultHotkeySimilarityBox.Minimum, _ultHotkeySimilarityBox.Maximum);
         }
         finally
         {
             _isApplyingConfigToUi = wasApplyingConfigToUi;
         }
+    }
+
+    private string GetUltimateClassifierModelDisplayText()
+    {
+        return $"模型 {Path.GetFileName(_config.UltimateClassifier.ModelPath)} / 标签 {Path.GetFileName(_config.UltimateClassifier.LabelsPath)}";
+    }
+
+    private string GetUltimateClassifierDebugDisplayText()
+    {
+        return $"{GetUltimateClassifierModelDisplayText()} | {GetUltimateClassifierPredictionDisplayText()}";
+    }
+
+    private string GetUltimateClassifierPredictionDisplayText()
+    {
+        var mappingText = _lastUltimateClassifierSoundMapped ? "有映射" : "无映射";
+        var existsText = _lastUltimateClassifierSoundExists ? "存在" : "不存在";
+        var soundText = string.IsNullOrWhiteSpace(_lastUltimateClassifierSoundPath)
+            ? "无音效"
+            : _lastUltimateClassifierSoundPath;
+        return $"预测 #{_lastUltimateClassifierIndex} {_lastUltimateClassifierClass} ({_lastUltimateClassifierConfidence:P1}) | {mappingText} | {existsText} | {soundText} | {_lastUltimateClassifierDecision}";
+    }
+
+    private string GetUltimateClassifierSelectedAudioDisplayText(ImageHotkeySkillConfig ult)
+    {
+        var audioPath = GetUltimateClassifierMappedAudioPath(ult);
+        if (string.IsNullOrWhiteSpace(audioPath))
+        {
+            return "未选择音效";
+        }
+
+        return FormatReadablePath(audioPath);
+    }
+
+    private void UpdateUltimateClassifierStatusText()
+    {
+        if (InvokeRequired)
+        {
+            BeginInvoke(new Action(UpdateUltimateClassifierStatusText));
+            return;
+        }
+
+        UpdateSelectedUltHotkeySkillDisplay();
+    }
+
+    private void SetUltimateClassifierDecision(string decision, bool updateStatus)
+    {
+        _lastUltimateClassifierDecision = decision;
+        InputDebugLogger.LogMessage(
+            $"Ultimate classifier decision: hotkey={_config.TriggerInput.DisplayName}; " +
+            $"class={_lastUltimateClassifierClass}; confidence={_lastUltimateClassifierConfidence:0.###}; " +
+            $"threshold={GetUltimateClassifierThreshold():0.###}; mappedPath={_lastUltimateClassifierSoundPath}; " +
+            $"pathExists={_lastUltimateClassifierSoundExists}; decision={decision}");
+        UpdateUltimateClassifierStatusText();
+
+        if (updateStatus)
+        {
+            SetStatus(GetUltimateClassifierPredictionDisplayText());
+        }
+    }
+
+    private double GetUltimateClassifierThreshold()
+    {
+        return Math.Clamp(
+            _config.UltimateClassifier.ConfidenceThreshold <= 0
+                ? DefaultUltimateClassifierConfidenceThreshold
+                : _config.UltimateClassifier.ConfidenceThreshold,
+            0.1,
+            1.0);
+    }
+
+    private void ApplyFixedUltimateClassifierTiming()
+    {
+        _config.UltimateClassifier.ScanIntervalMs = UltimateClassifierScanIntervalMs;
+        _config.UltimateClassifier.CooldownSeconds = UltimateClassifierCooldownSeconds;
+    }
+
+    private static bool TryGetUltimateClassifierClassName(ImageHotkeySkillConfig ult, out string className)
+    {
+        var name = ult.Name.Trim();
+        className = name switch
+        {
+            "鸟人" => "bird",
+            "大狗" => "dog",
+            "铁眼" => "eye",
+            "女爵" => "jue",
+            "无赖" => "lai",
+            "老头" => "lao",
+            "小蜗" => "wo",
+            "修女" => "xiu",
+            "隐士" => "ying",
+            "追" => "zhui",
+            _ => string.Empty
+        };
+
+        if (string.IsNullOrWhiteSpace(className))
+        {
+            var templateName = Path.GetFileNameWithoutExtension(ult.TemplateImagePath);
+            className = templateName switch
+            {
+                "niao" => "bird",
+                "tie" => "eye",
+                "jue" => "jue",
+                "lai" => "lai",
+                "lao" => "lao",
+                "wo" => "wo",
+                "xiu" => "xiu",
+                "ying" => "ying",
+                "Zhui" or "zhui" => "zhui",
+                _ => name
+            };
+        }
+
+        return className is "bird" or "dog" or "eye" or "jue" or "lai" or "lao" or "wo" or "xiu" or "ying" or "zhui";
+    }
+
+    private string GetUltimateClassifierMappedAudioPath(ImageHotkeySkillConfig ult)
+    {
+        if (TryGetUltimateClassifierClassName(ult, out var className) &&
+            _config.UltimateSoundMap.TryGetValue(className, out var mappedPath))
+        {
+            return mappedPath;
+        }
+
+        return ult.AudioPath;
+    }
+
+    private static string FormatReadablePath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return string.Empty;
+        }
+
+        var appDirectory = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var rootedPath = Path.IsPathRooted(path)
+            ? Path.GetFullPath(path)
+            : Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, path.Replace('/', Path.DirectorySeparatorChar)));
+
+        var normalized = rootedPath.Replace(Path.DirectorySeparatorChar, '/');
+        var assetsIndex = normalized.IndexOf("/assets/audio/", StringComparison.OrdinalIgnoreCase);
+        if (assetsIndex >= 0)
+        {
+            return normalized[(assetsIndex + 1)..];
+        }
+
+        if (rootedPath.StartsWith(appDirectory + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+        {
+            return Path.GetRelativePath(appDirectory, rootedPath).Replace(Path.DirectorySeparatorChar, '/');
+        }
+
+        return path;
     }
 
     private void UpdateSelectedUltHotkeySkillListItem()
@@ -3581,7 +4020,7 @@ public partial class AOUU : Form
 
         ult = new ImageHotkeySkillConfig
         {
-            Name = $"大招 {_config.UltHotkeyTrigger.Skills.Count + 1}",
+            Name = _config.UltHotkeyTrigger.Skills.Count == 0 ? "ultimate" : $"大招 {_config.UltHotkeyTrigger.Skills.Count + 1}",
             SimilarityThreshold = 0.85
         };
         _config.UltHotkeyTrigger.Skills.Add(ult);
@@ -3758,7 +4197,20 @@ public partial class AOUU : Form
 
     private void SyncUltHotkeyScanTimer()
     {
-        _ultHotkeyScanTimer.Interval = Math.Clamp(_config.UltHotkeyTrigger.ScanIntervalMs, 100, 10000);
+        var classifier = _config.UltimateClassifier;
+        if (classifier.Enabled)
+        {
+            _ultHotkeyScanTimer.Stop();
+            _ultHotkeyMatched = false;
+            _matchedUltHotkeySkill = null;
+            _lastUltHotkeyScore = 0;
+            return;
+        }
+
+        _ultHotkeyScanTimer.Interval = Math.Clamp(
+            _config.UltHotkeyTrigger.ScanIntervalMs,
+            100,
+            10000);
         if (_config.UltHotkeyTrigger.Enabled && !_isRegionCaptureRunning)
         {
             _ultHotkeyScanTimer.Start();
@@ -3806,12 +4258,12 @@ public partial class AOUU : Form
             ? "系统默认输出设备"
             : _config.AudioOutputDeviceName;
         var enabledTextTriggerCount = _config.TextTriggers.Count(trigger => trigger.Enabled);
-        var ultHotkeyTriggerState = _config.UltHotkeyTrigger.Enabled ? "开" : "关";
+        var ultHotkeyTriggerState = _config.UltimateClassifier.Enabled ? "开" : "关";
         var imageHotkeyTriggerState = _config.ImageHotkeyTrigger.Enabled ? "开" : "关";
         var keyAudioTriggerState = _config.KeyAudioTrigger.Enabled ? "开" : "关";
         var regionCount = _config.Regions.Count;
         _statusLabel.Text =
-            $"输出：{outputDevice}。OCR文字触发：{enabledTextTriggerCount}。大招音效：{ultHotkeyTriggerState}。战技音效：{imageHotkeyTriggerState}。按键音效：{keyAudioTriggerState}。大招触发键：{_config.TriggerKeyName}。截图键：{_config.RegionCaptureKeyName}。检测区域数量：{regionCount}。";
+            $"输出：{outputDevice}。OCR文字触发：{enabledTextTriggerCount}。自动大招识别：{ultHotkeyTriggerState}。战技音效：{imageHotkeyTriggerState}。按键音效：{keyAudioTriggerState}。大招触发键：{_config.TriggerKeyName}。大招冷却：{UltimateClassifierCooldownSeconds}秒。截图键：{_config.RegionCaptureKeyName}。检测区域数量：{regionCount}。";
     }
 
     private void UpdateThresholdDisplay()
@@ -3869,6 +4321,7 @@ public partial class AOUU : Form
     private void AOUU_FormClosed(object? sender, FormClosedEventArgs e)
     {
         _triggerMonitorService.Dispose();
+        _triggerMonitorService.HotkeyPolled -= TriggerMonitorService_HotkeyPolled;
         _regionCaptureMonitorService.Dispose();
         _skillRegionCaptureMonitorService.Dispose();
         _healthRegionCaptureMonitorService.Dispose();
@@ -3886,6 +4339,7 @@ public partial class AOUU : Form
         _inputCaptureService.Dispose();
         _healthBaselineService.Dispose();
         _templateMatcher.Dispose();
+        _ultimateClassifierService?.Dispose();
         DisposeAudio();
         _shutdownCts.Dispose();
     }

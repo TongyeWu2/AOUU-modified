@@ -17,7 +17,22 @@ public sealed class ConfigService
     private readonly string _bundledDefaultTemplateDirectory;
     private readonly JsonSerializerOptions _serializerOptions = new()
     {
-        WriteIndented = true
+        WriteIndented = true,
+        PropertyNameCaseInsensitive = true
+    };
+    private static readonly string[] UltimateClassifierClassNames = ["bird", "dog", "eye", "jue", "lai", "lao", "wo", "xiu", "ying", "zhui"];
+    private static readonly IReadOnlyDictionary<string, string[]> UltimateClassifierSkillAliases = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["bird"] = ["鸟人", "bird", "niao"],
+        ["dog"] = ["大狗", "dog"],
+        ["eye"] = ["铁眼", "eye", "tie"],
+        ["jue"] = ["女爵", "jue"],
+        ["lai"] = ["无赖", "lai"],
+        ["lao"] = ["老头", "lao"],
+        ["wo"] = ["小蜗", "wo"],
+        ["xiu"] = ["修女", "xiu"],
+        ["ying"] = ["隐士", "ying"],
+        ["zhui"] = ["追", "zhui"]
     };
 
     public ConfigService(string baseDirectory)
@@ -154,6 +169,28 @@ public sealed class ConfigService
                 HotkeyName = "F8",
                 HotkeyInput = InputBindingService.FromLegacyHotkey(0x77),
                 CooldownSeconds = 5
+            },
+            UltimateClassifier = new UltimateClassifierConfig
+            {
+                Enabled = true,
+                ModelPath = "assets/model/skill_classifier.onnx",
+                LabelsPath = "assets/model/labels.txt",
+                ConfidenceThreshold = 0.85,
+                ScanIntervalMs = 200,
+                CooldownSeconds = 10
+            },
+            UltimateSoundMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["bird"] = string.Empty,
+                ["dog"] = string.Empty,
+                ["eye"] = string.Empty,
+                ["jue"] = string.Empty,
+                ["lai"] = string.Empty,
+                ["lao"] = string.Empty,
+                ["wo"] = string.Empty,
+                ["xiu"] = string.Empty,
+                ["ying"] = string.Empty,
+                ["zhui"] = string.Empty
             },
             ImageHotkeyTrigger = new ImageHotkeyTriggerConfig
             {
@@ -316,6 +353,23 @@ public sealed class ConfigService
             config.TriggerKeyName = config.TriggerInput.DisplayName;
         }
 
+        if (dto.UltimateClassifier is not null)
+        {
+            config.UltimateClassifier = MapUltimateClassifierFromDto(dto.UltimateClassifier);
+        }
+
+        if (config.UltimateClassifier.Region is null && config.UltHotkeyTrigger.Region is not null)
+        {
+            config.UltimateClassifier.Region = config.UltHotkeyTrigger.Region;
+        }
+
+        if (dto.UltimateSoundMap is not null)
+        {
+            config.UltimateSoundMap = new Dictionary<string, string>(dto.UltimateSoundMap, StringComparer.OrdinalIgnoreCase);
+        }
+
+        EnsureUltimateSoundMapDefaults(config);
+
         if (dto.KeyAudioTrigger is not null)
         {
             config.KeyAudioTrigger = MapKeyAudioTriggerFromDto(dto.KeyAudioTrigger);
@@ -403,6 +457,7 @@ public sealed class ConfigService
         if (dto.UltHotkeyTrigger is null)
         {
             MigrateLegacyUltTrigger(config);
+            EnsureUltimateSoundMapDefaults(config);
         }
 
         SyncLegacyHotkeyFields(config);
@@ -438,6 +493,8 @@ public sealed class ConfigService
                 CooldownSeconds = trigger.CooldownSeconds
             }).ToList(),
             UltHotkeyTrigger = MapImageHotkeyTriggerToDto(config.UltHotkeyTrigger),
+            UltimateClassifier = MapUltimateClassifierToDto(config.UltimateClassifier),
+            UltimateSoundMap = new Dictionary<string, string>(config.UltimateSoundMap, StringComparer.OrdinalIgnoreCase),
             ImageHotkeyTrigger = MapImageHotkeyTriggerToDto(config.ImageHotkeyTrigger),
             KeyAudioTrigger = MapKeyAudioTriggerToDto(config.KeyAudioTrigger),
             RegionCaptureHotkeys = MapRegionCaptureHotkeysToDto(config.RegionCaptureHotkeys),
@@ -606,6 +663,99 @@ public sealed class ConfigService
             : Math.Clamp(config.SelectedSkillIndex, 0, config.Skills.Count - 1);
 
         return config;
+    }
+
+    private static void EnsureUltimateSoundMapDefaults(AppConfig config)
+    {
+        config.UltimateSoundMap.Remove("nothing");
+
+        foreach (var className in UltimateClassifierClassNames)
+        {
+            var existingPath = config.UltimateSoundMap.GetValueOrDefault(className, string.Empty);
+            var skillPath = FindUltimateSkillAudioPath(config.UltHotkeyTrigger.Skills, className);
+            if (!string.IsNullOrWhiteSpace(skillPath) && ShouldReplaceUltimateSoundMapPath(existingPath))
+            {
+                config.UltimateSoundMap[className] = skillPath;
+                continue;
+            }
+
+            if (ShouldReplaceUltimateSoundMapPath(existingPath))
+            {
+                config.UltimateSoundMap[className] = string.Empty;
+                continue;
+            }
+
+            config.UltimateSoundMap.TryAdd(className, string.Empty);
+        }
+    }
+
+    private static bool ShouldReplaceUltimateSoundMapPath(string path)
+    {
+        return string.IsNullOrWhiteSpace(path) ||
+               string.Equals(path, "assets/audio/animals.mp3", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(Path.GetFileName(path), "animals.mp3", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string FindUltimateSkillAudioPath(IEnumerable<ImageHotkeySkillConfig> skills, string className)
+    {
+        if (!UltimateClassifierSkillAliases.TryGetValue(className, out var aliases))
+        {
+            aliases = [className];
+        }
+
+        foreach (var alias in aliases)
+        {
+            var skill = skills.FirstOrDefault(item => string.Equals(item.Name, alias, StringComparison.OrdinalIgnoreCase));
+            if (!string.IsNullOrWhiteSpace(skill?.AudioPath))
+            {
+                return skill.AudioPath;
+            }
+        }
+
+        foreach (var alias in aliases)
+        {
+            var skill = skills.FirstOrDefault(item =>
+                !string.IsNullOrWhiteSpace(item.TemplateImagePath) &&
+                Path.GetFileNameWithoutExtension(item.TemplateImagePath).Contains(alias, StringComparison.OrdinalIgnoreCase));
+            if (!string.IsNullOrWhiteSpace(skill?.AudioPath))
+            {
+                return skill.AudioPath;
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private static UltimateClassifierConfig MapUltimateClassifierFromDto(UltimateClassifierDto dto)
+    {
+        return new UltimateClassifierConfig
+        {
+            Enabled = dto.Enabled,
+            ModelPath = string.IsNullOrWhiteSpace(dto.ModelPath)
+                ? "assets/model/skill_classifier.onnx"
+                : dto.ModelPath.Trim(),
+            LabelsPath = string.IsNullOrWhiteSpace(dto.LabelsPath)
+                ? "assets/model/labels.txt"
+                : dto.LabelsPath.Trim(),
+            Region = IsValidBounds(dto.Region) ? dto.Region : null,
+            ConfidenceThreshold = Math.Clamp(dto.ConfidenceThreshold <= 0 ? 0.85 : dto.ConfidenceThreshold, 0.1, 1.0),
+            ScanIntervalMs = 200,
+            CooldownSeconds = 10
+        };
+    }
+
+    private static UltimateClassifierDto MapUltimateClassifierToDto(UltimateClassifierConfig config)
+    {
+        return new UltimateClassifierDto
+        {
+            Enabled = config.Enabled,
+            ModelPath = config.ModelPath,
+            LabelsPath = config.LabelsPath,
+            Region = config.Region,
+            ConfidenceThreshold = config.ConfidenceThreshold,
+            ScanIntervalMs = config.ScanIntervalMs,
+            CooldownSeconds = config.CooldownSeconds
+        };
     }
 
     private static ImageHotkeyTriggerDto MapImageHotkeyTriggerToDto(ImageHotkeyTriggerConfig config)
@@ -801,6 +951,12 @@ public sealed class ConfigService
 
         public ImageHotkeyTriggerDto? UltHotkeyTrigger { get; set; }
 
+        [JsonPropertyName("ultimateClassifier")]
+        public UltimateClassifierDto? UltimateClassifier { get; set; }
+
+        [JsonPropertyName("ultimateSoundMap")]
+        public Dictionary<string, string>? UltimateSoundMap { get; set; }
+
         public ImageHotkeyTriggerDto? ImageHotkeyTrigger { get; set; }
 
         public KeyAudioTriggerDto? KeyAudioTrigger { get; set; }
@@ -928,6 +1084,23 @@ public sealed class ConfigService
         public int ScanIntervalMs { get; set; } = 200;
 
         public int CooldownSeconds { get; set; } = 5;
+    }
+
+    private sealed class UltimateClassifierDto
+    {
+        public bool Enabled { get; set; } = true;
+
+        public string? ModelPath { get; set; } = "assets/model/skill_classifier.onnx";
+
+        public string? LabelsPath { get; set; } = "assets/model/labels.txt";
+
+        public ScreenBounds? Region { get; set; }
+
+        public double ConfidenceThreshold { get; set; } = 0.85;
+
+        public int ScanIntervalMs { get; set; } = 200;
+
+        public int CooldownSeconds { get; set; } = 3;
     }
 
     private sealed class ImageHotkeySkillDto
