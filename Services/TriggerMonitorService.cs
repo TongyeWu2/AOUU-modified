@@ -261,7 +261,7 @@ public sealed class TriggerMonitorService : IDisposable
     {
         if (!InputBindingService.IsSupported(TriggerBinding))
         {
-            return IsHotkeyPressed(TriggerKey);
+            return IsGamepadKey(TriggerKey) && IsGamepadKeyPressed(TriggerKey);
         }
 
         if (TriggerBinding.Kind == InputBindingKind.Gamepad)
@@ -269,12 +269,7 @@ public sealed class TriggerMonitorService : IDisposable
             return InputBindingService.IsPressed(TriggerBinding);
         }
 
-        if (TriggerBinding.Modifiers != KeyboardModifiers.None)
-        {
-            return InputBindingService.IsPressed(TriggerBinding);
-        }
-
-        return IsHotkeyPressed(TriggerBinding.KeyCode != 0 ? TriggerBinding.KeyCode : TriggerKey);
+        return false;
     }
 
     private static IEnumerable<int> EnumeratePressedKeyboardAndMouseKeys()

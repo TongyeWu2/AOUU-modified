@@ -70,7 +70,7 @@ public sealed class KeyCaptureDialog : Form
             Top = 40,
             Width = 356,
             Height = 38,
-            Text = "先点“开始录制”，再按一次目标输入。\r\n支持键盘单键、Ctrl/Alt/Shift 组合键和 XInput 手柄按钮组合。",
+            Text = "Gamepad-only build：先点“开始录制”，再按手柄按钮。\r\n支持 XInput 手柄单键和手柄按钮组合。",
             TextAlign = ContentAlignment.MiddleCenter
         };
 
@@ -210,7 +210,7 @@ public sealed class KeyCaptureDialog : Form
         }
 
         _state = CaptureState.Armed;
-        _statusLabel.Text = "正在监听，按键盘组合键，或按下手柄按钮组合。";
+        _statusLabel.Text = "正在监听，请按下 XInput 手柄按钮组合。键盘热键在此版本中已禁用。";
         _statusTimer.Start();
     }
 
@@ -251,7 +251,7 @@ public sealed class KeyCaptureDialog : Form
             return;
         }
 
-        BeginKeyboardComboCapture(binding);
+        _statusLabel.Text = "键盘热键在 gamepad-only 版本中已禁用，请使用手柄按钮。";
     }
 
     private void BeginKeyboardComboCapture(InputBinding binding)

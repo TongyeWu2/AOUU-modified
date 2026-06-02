@@ -52,10 +52,6 @@ public sealed class InputCaptureService : IDisposable
             _gamepadPollTimer.Start();
         }
 
-        if (!_keyboardPollTimer.Enabled)
-        {
-            _keyboardPollTimer.Start();
-        }
     }
 
     public void Dispose()
@@ -75,8 +71,6 @@ public sealed class InputCaptureService : IDisposable
 
     private void OnKeyboardPressed(int keyCode)
     {
-        InputPressed?.Invoke(keyCode);
-        InputBindingPressed?.Invoke(InputBindingService.FromKeyboardEvent(keyCode));
     }
 
     private void KeyboardPollTimer_Tick(object? sender, EventArgs e)
@@ -166,8 +160,6 @@ public sealed class InputCaptureService : IDisposable
 
     private void OnMousePressed(int keyCode)
     {
-        InputPressed?.Invoke(keyCode);
-        InputBindingPressed?.Invoke(InputBindingService.FromKeyboardEvent(keyCode));
     }
 
     private void GamepadPollTimer_Tick(object? sender, EventArgs e)
