@@ -47,11 +47,6 @@ public sealed class InputCaptureService : IDisposable
             _globalInputHookService.Install();
         }
 
-        if (!_gamepadPollTimer.Enabled)
-        {
-            _gamepadPollTimer.Start();
-        }
-
         if (!_keyboardPollTimer.Enabled)
         {
             _keyboardPollTimer.Start();

@@ -104,12 +104,6 @@ public sealed class TriggerMonitorService : IDisposable
             return true;
         }
 
-        foreach (var candidate in GetPressedGamepadKeys())
-        {
-            keyCode = candidate;
-            return true;
-        }
-
         keyCode = 0;
         return false;
     }
@@ -120,7 +114,6 @@ public sealed class TriggerMonitorService : IDisposable
 
         pressedKeys.UnionWith(GetPressedKeyboardAndMouseKeys());
 
-        pressedKeys.UnionWith(GetPressedGamepadKeys());
         return pressedKeys;
     }
 
@@ -154,14 +147,7 @@ public sealed class TriggerMonitorService : IDisposable
 
     public static HashSet<int> GetPressedGamepadKeys()
     {
-        var pressedKeys = new HashSet<int>();
-
-        foreach (var state in EnumerateConnectedGamepadStates())
-        {
-            AddPressedGamepadKeys(state.Gamepad, pressedKeys);
-        }
-
-        return pressedKeys;
+        return [];
     }
 
     public static string GetKeyName(int keyCode)
@@ -207,7 +193,7 @@ public sealed class TriggerMonitorService : IDisposable
 
     public static bool IsSupportedHotkey(int keyCode)
     {
-        return IsGamepadKey(keyCode) || IsSupportedKeyboardOrMouseKey(keyCode);
+        return IsSupportedKeyboardOrMouseKey(keyCode);
     }
 
     public static bool IsSupportedKeyboardOrMouseKey(int keyCode)
@@ -227,7 +213,7 @@ public sealed class TriggerMonitorService : IDisposable
 
     public static bool IsGamepadKey(int keyCode)
     {
-        return TryGetGamepadKeyName(keyCode, out _);
+        return false;
     }
 
     public static bool IsSameHotkey(int configuredKeyCode, int pressedKeyCode)
@@ -259,22 +245,7 @@ public sealed class TriggerMonitorService : IDisposable
 
     private bool IsConfiguredHotkeyPressed()
     {
-        if (!InputBindingService.IsSupported(TriggerBinding))
-        {
-            return IsHotkeyPressed(TriggerKey);
-        }
-
-        if (TriggerBinding.Kind == InputBindingKind.Gamepad)
-        {
-            return InputBindingService.IsPressed(TriggerBinding);
-        }
-
-        if (TriggerBinding.Modifiers != KeyboardModifiers.None)
-        {
-            return InputBindingService.IsPressed(TriggerBinding);
-        }
-
-        return IsHotkeyPressed(TriggerBinding.KeyCode != 0 ? TriggerBinding.KeyCode : TriggerKey);
+        return IsHotkeyPressed(TriggerKey);
     }
 
     private static IEnumerable<int> EnumeratePressedKeyboardAndMouseKeys()
@@ -290,19 +261,6 @@ public sealed class TriggerMonitorService : IDisposable
 
     public static bool IsGamepadKeyPressed(int keyCode)
     {
-        if (!TryGetGamepadKeyName(keyCode, out _))
-        {
-            return false;
-        }
-
-        foreach (var state in EnumerateConnectedGamepadStates())
-        {
-            if (IsGamepadKeyPressed(state.Gamepad, keyCode))
-            {
-                return true;
-            }
-        }
-
         return false;
     }
 
@@ -310,7 +268,7 @@ public sealed class TriggerMonitorService : IDisposable
     {
         if (TryGetGamepadKeyName(keyCode, out _))
         {
-            return IsGamepadKeyPressed(keyCode);
+            return false;
         }
 
         return keyCode switch
